@@ -407,17 +407,17 @@ def generate_thumbnail(topic, title, hashtags=None):
     try:
         path = os.path.join(tmp, "thumbnail.png")
         image_url = get_stock_image(topic)
-        try:
-            if image_url:
-                resp = requests.get(image_url, timeout=20)
-                if resp.status_code == 200:
-                    bg = Image.open(BytesIO(resp.content)).convert("RGB")
-                    bg = bg.resize(THUMBNAIL_SIZE)
-                else:
-                    bg = make_gradient_background(THUMBNAIL_SIZE)
-            else:
+        if image_url:
+            image_path = os.path.join(tmp, "thumb_source.png")
+            if not stream_download(image_url, image_path, chunk_size=8192):
                 bg = make_gradient_background(THUMBNAIL_SIZE)
-        except Exception:
+            else:
+                try:
+                    bg = Image.open(image_path).convert("RGB")
+                    bg = bg.resize(THUMBNAIL_SIZE)
+                except Exception:
+                    bg = make_gradient_background(THUMBNAIL_SIZE)
+        else:
             bg = make_gradient_background(THUMBNAIL_SIZE)
 
         draw = ImageDraw.Draw(bg)
@@ -452,15 +452,29 @@ def generate_thumbnail(topic, title, hashtags=None):
         pass
 
 
-def call_gtts(text, speaking_rate=1.0, pitch=0.0):
+def call_gtts(text, output_path, speaking_rate=1.0, pitch=0.0):
     try:
         tts = gTTS(text=text, lang="en", slow=False)
-        audio_buffer = BytesIO()
-        tts.write_to_fp(audio_buffer)
-        return audio_buffer.getvalue()
+        with open(output_path, "wb") as f:
+            tts.write_to_fp(f)
+        return True
     except Exception as exc:
         log(f"gTTS error: {exc}")
-        return None
+        return False
+
+
+def stream_download(url, dest_path, chunk_size=8192):
+    try:
+        with requests.get(url, stream=True, timeout=30) as r:
+            r.raise_for_status()
+            with open(dest_path, "wb") as f:
+                for chunk in r.iter_content(chunk_size=chunk_size):
+                    if chunk:
+                        f.write(chunk)
+        return True
+    except Exception as exc:
+        log(f"Download failed {url}: {exc}")
+        return False
 
 
 def convert_audio_segment(mp3_path, wav_path, tempo=1.0, volume=1.0):
@@ -510,16 +524,13 @@ def text_to_speech_fallback(text):
     tmp = tempfile.mkdtemp()
     mp3_path = os.path.join(tmp, "fallback.mp3")
     wav_path = os.path.join(tmp, "fallback.wav")
-    audio_data = call_gtts(text, speaking_rate=1.0, pitch=-1.0)
-    if not audio_data:
+    if not call_gtts(text, mp3_path, speaking_rate=1.0, pitch=-1.0):
         try:
             if os.path.exists(tmp):
                 shutil.rmtree(tmp)
         except Exception:
             pass
         return None
-    with open(mp3_path, "wb") as f:
-        f.write(audio_data)
     if not convert_audio_segment(mp3_path, wav_path, tempo=1.0, volume=1.0):
         try:
             if os.path.exists(tmp):
@@ -527,7 +538,6 @@ def text_to_speech_fallback(text):
         except Exception:
             pass
         return None
-    # Delete mp3 to save memory
     try:
         if os.path.exists(mp3_path):
             os.remove(mp3_path)
@@ -550,12 +560,9 @@ def text_to_speech_dynamic(script):
             continue
         mp3_path = os.path.join(tmp, f"segment_{index}.mp3")
         wav_path = os.path.join(tmp, f"segment_{index}.wav")
-        audio_data = call_gtts(segment, speaking_rate=1.0 + random.uniform(-0.08, 0.12), pitch=random.uniform(-2.0, 2.5))
-        if not audio_data:
+        if not call_gtts(segment, mp3_path, speaking_rate=1.0 + random.uniform(-0.08, 0.12), pitch=random.uniform(-2.0, 2.5)):
             log("Dynamic TTS failed, falling back to full text")
             return text_to_speech_fallback(script)
-        with open(mp3_path, "wb") as f:
-            f.write(audio_data)
 
         tempo = 1.0
         volume = 1.0
@@ -570,7 +577,6 @@ def text_to_speech_dynamic(script):
         if not convert_audio_segment(mp3_path, wav_path, tempo=tempo, volume=volume):
             return text_to_speech_fallback(script)
         wav_paths.append(wav_path)
-        # Delete mp3 immediately after conversion to save memory
         try:
             if os.path.exists(mp3_path):
                 os.remove(mp3_path)
@@ -602,7 +608,6 @@ def text_to_speech_dynamic(script):
     if result.returncode != 0 or not os.path.exists(final_wav):
         log(f"Audio concat failed: {result.stderr.decode()[-300:]}")
         return text_to_speech_fallback(script)
-    # Delete intermediate wav files to free memory
     for wav in wav_paths:
         try:
             if os.path.exists(wav):
@@ -643,149 +648,71 @@ def normalize_video(vpath, output_path):
     return True
 
 
-def create_video_local(audio_path, stock_video_urls, duration=60):
+def create_video_local(audio_path, image_url, duration=60):
     if not os.path.exists(audio_path):
         log("Audio path missing for video creation")
         return None
-    
+
     tmp = tempfile.mkdtemp()
-    # Process videos one at a time, keep only 1 normalized at a time
-    normalized_paths = []
-    for i, url in enumerate(stock_video_urls[:3]):  # Limit to 3 max
-        try:
-            vpath = os.path.join(tmp, f"v{i}.mp4")
-            r = requests.get(url, timeout=30)
-            r.raise_for_status()
-            with open(vpath, "wb") as f:
-                f.write(r.content)
-            
-            # Normalize immediately while downloaded
-            norm_path = os.path.join(tmp, f"norm_{i}.mp4")
-            if normalize_video(vpath, norm_path):
-                normalized_paths.append(norm_path)
-                # Delete original right after normalization
-                try:
-                    if os.path.exists(vpath):
-                        os.remove(vpath)
-                except Exception:
-                    pass
-            else:
-                try:
-                    if os.path.exists(vpath):
-                        os.remove(vpath)
-                except Exception:
-                    pass
-        except Exception as exc:
-            log(f"Failed to process video {i}: {exc}")
-    
-    if not normalized_paths:
-        log("No normalized videos available")
-        try:
-            if os.path.exists(tmp):
-                shutil.rmtree(tmp)
-        except Exception:
-            pass
-        return None
-
-    concat_list = os.path.join(tmp, "concat.txt")
-    with open(concat_list, "w", encoding="utf-8") as f:
-        for vp in normalized_paths:
-            f.write(f"file '{vp}'\n")
-
-    concat_path = os.path.join(tmp, "concat.mp4")
-    concat_result = subprocess.run([
-        FFMPEG_BIN,
-        "-y",
-        "-f",
-        "concat",
-        "-safe",
-        "0",
-        "-i",
-        concat_list,
-        "-c",
-        "copy",
-        concat_path,
-    ], capture_output=True)
-    if concat_result.returncode != 0 or not os.path.exists(concat_path):
-        log(f"Concat failed: {concat_result.stderr.decode()[-300:]}")
-        try:
-            if os.path.exists(tmp):
-                shutil.rmtree(tmp)
-        except Exception:
-            pass
-        return None
-
-    output_path = os.path.join(tmp, "output.mp4")
-    result = subprocess.run([
-        FFMPEG_BIN,
-        "-y",
-        "-i",
-        concat_path,
-        "-i",
-        audio_path,
-        "-vf",
-        "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920",
-        "-map",
-        "0:v:0",
-        "-map",
-        "1:a:0",
-        "-c:v",
-        "libx264",
-        "-pix_fmt",
-        "yuv420p",
-        "-profile:v",
-        "baseline",
-        "-level",
-        "3.1",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "192k",
-        "-ar",
-        "44100",
-        "-shortest",
-        output_path,
-    ], capture_output=True)
-    if result.returncode != 0 or not os.path.exists(output_path):
-        log(f"Final render failed: {result.stderr.decode()[-300:]}")
-        try:
-            if os.path.exists(tmp):
-                shutil.rmtree(tmp)
-        except Exception:
-            pass
-        return None
-    
-    # Clean up intermediate files to save memory
-    for norm_path in normalized_paths:
-        try:
-            if os.path.exists(norm_path):
-                os.remove(norm_path)
-        except Exception:
-            pass
     try:
-        if os.path.exists(concat_path):
-            os.remove(concat_path)
-        if os.path.exists(concat_list):
-            os.remove(concat_list)
-    except Exception:
-        pass
-    
-    log(f"Video created: {os.path.getsize(output_path) // 1024}KB")
-    return output_path
+        image_path = os.path.join(tmp, "background.png")
+        if not stream_download(image_url, image_path, chunk_size=8192):
+            log("Background image download failed")
+            return None
+
+        output_path = os.path.join(tmp, "output.mp4")
+        result = subprocess.run([
+            FFMPEG_BIN,
+            "-y",
+            "-loop",
+            "1",
+            "-t",
+            str(duration),
+            "-i",
+            image_path,
+            "-i",
+            audio_path,
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-tune",
+            "stillimage",
+            "-r",
+            "25",
+            "-vf",
+            "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-ar",
+            "44100",
+            "-shortest",
+            output_path,
+        ], capture_output=True)
+        if result.returncode != 0 or not os.path.exists(output_path):
+            log(f"Image video render failed: {result.stderr.decode()[-300:]}")
+            return None
+
+        log(f"Video created: {os.path.getsize(output_path) // 1024}KB")
+        return output_path
+    except Exception as exc:
+        log(f"create_video_local error: {exc}")
+        return None
 
 
 def upload_thumbnail(video_id, thumbnail_path, access_token):
     if not video_id or not os.path.exists(thumbnail_path):
         return False
     with open(thumbnail_path, "rb") as f:
-        data = f.read()
-    resp = requests.post(
-        "https://www.googleapis.com/upload/youtube/v3/thumbnails/set",
-        params={"videoId": video_id},
-        headers={"Authorization": f"Bearer {access_token}", "Content-Type": "image/png"},
-        data=data,
-        timeout=30,
-    )
+        resp = requests.post(
+            "https://www.googleapis.com/upload/youtube/v3/thumbnails/set",
+            params={"videoId": video_id},
+            headers={"Authorization": f"Bearer {access_token}", "Content-Type": "image/png"},
+            data=f,
+            timeout=30,
+        )
     if resp.status_code not in [200, 201]:
         log(f"Thumbnail upload failed: {resp.status_code} {resp.text[:200]}")
         return False
@@ -799,9 +726,6 @@ def upload_video_file(video_path, title, description, tags=None, thumbnail_path=
         log("Unable to upload without YouTube access token")
         return None
 
-    with open(video_path, "rb") as f:
-        video_data = f.read()
-
     meta = {
         "snippet": {
             "title": title[:100],
@@ -813,20 +737,24 @@ def upload_video_file(video_path, title, description, tags=None, thumbnail_path=
     }
 
     boundary = "----WebKitFormBoundaryWealthShock"
-    body = []
-    body.append(f"--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n")
-    body.append(json.dumps(meta))
-    body.append(f"\r\n--{boundary}\r\nContent-Type: video/mp4\r\n\r\n")
-    body.append(video_data)
-    body.append(f"\r\n--{boundary}--\r\n")
-    payload = b"".join(part if isinstance(part, bytes) else part.encode("utf-8") for part in body)
+    def multipart_stream():
+        yield f"--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n".encode("utf-8")
+        yield json.dumps(meta).encode("utf-8")
+        yield f"\r\n--{boundary}\r\nContent-Type: video/mp4\r\n\r\n".encode("utf-8")
+        with open(video_path, "rb") as vf:
+            while True:
+                chunk = vf.read(8192)
+                if not chunk:
+                    break
+                yield chunk
+        yield f"\r\n--{boundary}--\r\n".encode("utf-8")
 
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": f"multipart/related; boundary={boundary}",
     }
     url = "https://www.googleapis.com/upload/youtube/v3/videos?part=snippet,status&uploadType=multipart"
-    resp = requests.post(url, headers=headers, data=payload, timeout=120)
+    resp = requests.post(url, headers=headers, data=multipart_stream(), timeout=120)
     if resp.status_code not in [200, 201]:
         log(f"YouTube upload failed: {resp.status_code} {resp.text[:300]}")
         return None
@@ -974,12 +902,12 @@ def run_original_pipeline():
             log("Audio generation failed")
             return
 
-        stock_videos = get_stock_videos(topic)
-        if not stock_videos:
-            log("No stock videos found")
+        image_url = get_stock_image(topic)
+        if not image_url:
+            log("No stock image found")
             return
 
-        video_path = create_video_local(audio_path, stock_videos, duration=60)
+        video_path = create_video_local(audio_path, image_url, duration=60)
         if not video_path:
             log("Video creation failed")
             return

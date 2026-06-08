@@ -14,9 +14,10 @@ WealthShock is now a full automation system for finance shorts with:
 
 ## Requirements
 
-- Python 3.9+
+- Python 3.11+
 - The packages in `requirements.txt`
 - A local `.env` file with your API keys and deployment secrets
+- Optional Render secrets in GitHub Actions for auto-deploy
 
 ## Setup
 
@@ -36,17 +37,27 @@ WealthShock is now a full automation system for finance shorts with:
    YOUTUBE_CLIENT_ID=
    YOUTUBE_CLIENT_SECRET=
    YOUTUBE_REFRESH_TOKEN=
+   RENDER_API_KEY=
+   RENDER_SERVICE_ID=
    ```
-4. Run the pipeline:
+4. Run the pipeline locally:
    ```bash
    python3 main.py
    ```
 
+## Production Deploy
+
+- Push code to `main` and GitHub Actions will validate the app.
+- If `RENDER_API_KEY` and `RENDER_SERVICE_ID` are configured in repository secrets,
+  the deploy workflow will trigger a Render deployment automatically.
+
 ## Features
 
-- `main.py` now uses real trending data and adaptive YouTube analytics scheduling.
+- `main.py` now builds YouTube Shorts from a single static background image plus adaptive gTTS voiceover.
+- The pipeline uses streamed downloads and file-based uploads to reduce memory footprint for 512MB Render deployments.
 - It generates two viral title variants and uploads both for A/B testing.
-- It creates a compelling thumbnail automatically.
+- Automatic thumbnails are generated with bold hook text and finance-focused branding.
+- GitHub Actions run CI on push and can trigger Render deployments automatically when secrets are configured.
 - It keeps local A/B test history in `ab_tests.json`.
 
 ## Notes

@@ -2,6 +2,7 @@ services:
   - type: worker
     name: wealthshock
     env: python
+    plan: starter
     buildCommand: pip install -r requirements.txt
     startCommand: python main.py
     envVars:
