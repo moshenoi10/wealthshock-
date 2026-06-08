@@ -1,7 +1,9 @@
+import gc
 import json
 import os
 import random
 import re
+import shutil
 import subprocess
 import tempfile
 import time
@@ -320,12 +322,14 @@ def generate_hashtags(topic, title):
     return fallback_hashtags(topic, title)
 
 
-def get_stock_videos(topic, count=5):
+def get_stock_videos(topic, count=3):
+    # Limit to 3 max to reduce memory usage
+    count = min(count, 3)
     query = topic if topic else "finance"
     try:
         r = requests.get(
             "https://pixabay.com/api/videos/",
-            params={"key": PIXABAY_KEY, "q": query, "per_page": count * 2, "video_type": "film", "safesearch": "true"},
+            params={"key": PIXABAY_KEY, "q": query, "per_page": count + 2, "video_type": "film", "safesearch": "true"},
             timeout=20,
         )
         data = r.json()
@@ -333,7 +337,8 @@ def get_stock_videos(topic, count=5):
         urls = []
         for h in hits:
             videos = h.get("videos", {})
-            for quality in ["large", "medium", "small"]:
+            # Prefer smallest file size available (small -> medium -> large)
+            for quality in ["small", "medium", "large"]:
                 url = videos.get(quality, {}).get("url")
                 if url and url.startswith("https://"):
                     urls.append(url)
@@ -341,7 +346,7 @@ def get_stock_videos(topic, count=5):
         if not urls:
             log("Pixabay returned no video URLs, falling back to finance search")
             return get_stock_videos("finance", count)
-        log(f"Pixabay found {len(urls)} videos")
+        log(f"Pixabay found {len(urls)} videos, using {min(len(urls), count)}")
         return urls[:count]
     except Exception as exc:
         log(f"Stock video fetch failed: {exc}")
@@ -399,46 +404,52 @@ def make_gradient_background(size):
 
 def generate_thumbnail(topic, title, hashtags=None):
     tmp = tempfile.mkdtemp()
-    path = os.path.join(tmp, "thumbnail.png")
-    image_url = get_stock_image(topic)
     try:
-        if image_url:
-            resp = requests.get(image_url, timeout=20)
-            if resp.status_code == 200:
-                bg = Image.open(BytesIO(resp.content)).convert("RGB")
-                bg = bg.resize(THUMBNAIL_SIZE)
+        path = os.path.join(tmp, "thumbnail.png")
+        image_url = get_stock_image(topic)
+        try:
+            if image_url:
+                resp = requests.get(image_url, timeout=20)
+                if resp.status_code == 200:
+                    bg = Image.open(BytesIO(resp.content)).convert("RGB")
+                    bg = bg.resize(THUMBNAIL_SIZE)
+                else:
+                    bg = make_gradient_background(THUMBNAIL_SIZE)
             else:
                 bg = make_gradient_background(THUMBNAIL_SIZE)
-        else:
+        except Exception:
             bg = make_gradient_background(THUMBNAIL_SIZE)
-    except Exception:
-        bg = make_gradient_background(THUMBNAIL_SIZE)
 
-    draw = ImageDraw.Draw(bg)
-    title_font = load_font(110)
-    hook_font = load_font(140)
-    tag_font = load_font(48)
+        draw = ImageDraw.Draw(bg)
+        title_font = load_font(110)
+        hook_font = load_font(140)
+        tag_font = load_font(48)
 
-    overlay = Image.new("RGBA", THUMBNAIL_SIZE, (0, 0, 0, 140))
-    bg.paste(overlay, (0, 0), overlay)
+        overlay = Image.new("RGBA", THUMBNAIL_SIZE, (0, 0, 0, 140))
+        bg.paste(overlay, (0, 0), overlay)
 
-    hook_text = "SHOCKING"
-    title_lines = wrap(title.upper(), width=18)
-    hashtag_line = " ".join(hashtags[:5]) if hashtags else "#Shorts #Finance"
+        hook_text = "SHOCKING"
+        title_lines = wrap(title.upper(), width=18)
+        hashtag_line = " ".join(hashtags[:5]) if hashtags else "#Shorts #Finance"
 
-    draw.text((60, 80), hook_text, font=hook_font, fill="#FFD700")
-    y = 260
-    for line in title_lines[:4]:
-        draw.text((60, y), line, font=title_font, fill="#FFFFFF")
-        bbox = draw.textbbox((60, y), line, font=title_font)
-        line_height = bbox[3] - bbox[1]
-        y += line_height + 12
+        draw.text((60, 80), hook_text, font=hook_font, fill="#FFD700")
+        y = 260
+        for line in title_lines[:4]:
+            draw.text((60, y), line, font=title_font, fill="#FFFFFF")
+            bbox = draw.textbbox((60, y), line, font=title_font)
+            line_height = bbox[3] - bbox[1]
+            y += line_height + 12
 
-    draw.rectangle([50, THUMBNAIL_SIZE[1] - 220, THUMBNAIL_SIZE[0] - 50, THUMBNAIL_SIZE[1] - 100], outline="#FFD700", width=6)
-    draw.text((60, THUMBNAIL_SIZE[1] - 180), hashtag_line, font=tag_font, fill="#FFFFFF")
-    bg.save(path)
-    log(f"Thumbnail generated: {path}")
-    return path
+        draw.rectangle([50, THUMBNAIL_SIZE[1] - 220, THUMBNAIL_SIZE[0] - 50, THUMBNAIL_SIZE[1] - 100], outline="#FFD700", width=6)
+        draw.text((60, THUMBNAIL_SIZE[1] - 180), hashtag_line, font=tag_font, fill="#FFFFFF")
+        bg.save(path)
+        log(f"Thumbnail generated: {path}")
+        # Return path but will be cleaned up in finally
+        return path
+    finally:
+        # Note: we don't delete the temp directory immediately because the thumbnail file
+        # is still being used by upload functions. Clean up will happen after upload.
+        pass
 
 
 def call_gtts(text, speaking_rate=1.0, pitch=0.0):
@@ -501,11 +512,27 @@ def text_to_speech_fallback(text):
     wav_path = os.path.join(tmp, "fallback.wav")
     audio_data = call_gtts(text, speaking_rate=1.0, pitch=-1.0)
     if not audio_data:
+        try:
+            if os.path.exists(tmp):
+                shutil.rmtree(tmp)
+        except Exception:
+            pass
         return None
     with open(mp3_path, "wb") as f:
         f.write(audio_data)
     if not convert_audio_segment(mp3_path, wav_path, tempo=1.0, volume=1.0):
+        try:
+            if os.path.exists(tmp):
+                shutil.rmtree(tmp)
+        except Exception:
+            pass
         return None
+    # Delete mp3 to save memory
+    try:
+        if os.path.exists(mp3_path):
+            os.remove(mp3_path)
+    except Exception:
+        pass
     return wav_path
 
 
@@ -543,6 +570,12 @@ def text_to_speech_dynamic(script):
         if not convert_audio_segment(mp3_path, wav_path, tempo=tempo, volume=volume):
             return text_to_speech_fallback(script)
         wav_paths.append(wav_path)
+        # Delete mp3 immediately after conversion to save memory
+        try:
+            if os.path.exists(mp3_path):
+                os.remove(mp3_path)
+        except Exception:
+            pass
 
     if not wav_paths:
         return text_to_speech_fallback(script)
@@ -569,6 +602,18 @@ def text_to_speech_dynamic(script):
     if result.returncode != 0 or not os.path.exists(final_wav):
         log(f"Audio concat failed: {result.stderr.decode()[-300:]}")
         return text_to_speech_fallback(script)
+    # Delete intermediate wav files to free memory
+    for wav in wav_paths:
+        try:
+            if os.path.exists(wav):
+                os.remove(wav)
+        except Exception:
+            pass
+    try:
+        if os.path.exists(concat_list):
+            os.remove(concat_list)
+    except Exception:
+        pass
     return final_wav
 
 
@@ -602,30 +647,44 @@ def create_video_local(audio_path, stock_video_urls, duration=60):
     if not os.path.exists(audio_path):
         log("Audio path missing for video creation")
         return None
+    
     tmp = tempfile.mkdtemp()
-    video_paths = []
-    for i, url in enumerate(stock_video_urls[:5]):
+    # Process videos one at a time, keep only 1 normalized at a time
+    normalized_paths = []
+    for i, url in enumerate(stock_video_urls[:3]):  # Limit to 3 max
         try:
             vpath = os.path.join(tmp, f"v{i}.mp4")
             r = requests.get(url, timeout=30)
             r.raise_for_status()
             with open(vpath, "wb") as f:
                 f.write(r.content)
-            video_paths.append(vpath)
+            
+            # Normalize immediately while downloaded
+            norm_path = os.path.join(tmp, f"norm_{i}.mp4")
+            if normalize_video(vpath, norm_path):
+                normalized_paths.append(norm_path)
+                # Delete original right after normalization
+                try:
+                    if os.path.exists(vpath):
+                        os.remove(vpath)
+                except Exception:
+                    pass
+            else:
+                try:
+                    if os.path.exists(vpath):
+                        os.remove(vpath)
+                except Exception:
+                    pass
         except Exception as exc:
-            log(f"Failed to download video {i}: {exc}")
-
-    if not video_paths:
-        log("No videos downloaded")
-        return None
-
-    normalized_paths = []
-    for i, vpath in enumerate(video_paths):
-        norm_path = os.path.join(tmp, f"norm_{i}.mp4")
-        if normalize_video(vpath, norm_path):
-            normalized_paths.append(norm_path)
+            log(f"Failed to process video {i}: {exc}")
+    
     if not normalized_paths:
         log("No normalized videos available")
+        try:
+            if os.path.exists(tmp):
+                shutil.rmtree(tmp)
+        except Exception:
+            pass
         return None
 
     concat_list = os.path.join(tmp, "concat.txt")
@@ -649,6 +708,11 @@ def create_video_local(audio_path, stock_video_urls, duration=60):
     ], capture_output=True)
     if concat_result.returncode != 0 or not os.path.exists(concat_path):
         log(f"Concat failed: {concat_result.stderr.decode()[-300:]}")
+        try:
+            if os.path.exists(tmp):
+                shutil.rmtree(tmp)
+        except Exception:
+            pass
         return None
 
     output_path = os.path.join(tmp, "output.mp4")
@@ -684,7 +748,28 @@ def create_video_local(audio_path, stock_video_urls, duration=60):
     ], capture_output=True)
     if result.returncode != 0 or not os.path.exists(output_path):
         log(f"Final render failed: {result.stderr.decode()[-300:]}")
+        try:
+            if os.path.exists(tmp):
+                shutil.rmtree(tmp)
+        except Exception:
+            pass
         return None
+    
+    # Clean up intermediate files to save memory
+    for norm_path in normalized_paths:
+        try:
+            if os.path.exists(norm_path):
+                os.remove(norm_path)
+        except Exception:
+            pass
+    try:
+        if os.path.exists(concat_path):
+            os.remove(concat_path)
+        if os.path.exists(concat_list):
+            os.remove(concat_list)
+    except Exception:
+        pass
+    
     log(f"Video created: {os.path.getsize(output_path) // 1024}KB")
     return output_path
 
@@ -909,6 +994,25 @@ def run_original_pipeline():
         if video_a_id or video_b_id:
             record_ab_test(topic, title_a, title_b, video_a_id, video_b_id, thumbnail_path)
             update_ab_test_results()
+        
+        # Clean up temporary files after upload
+        temp_dirs = set()
+        for path in [audio_path, video_path, thumbnail_path]:
+            if path:
+                try:
+                    temp_dir = os.path.dirname(path)
+                    if temp_dir and os.path.exists(temp_dir):
+                        temp_dirs.add(temp_dir)
+                except Exception:
+                    pass
+        
+        for temp_dir in temp_dirs:
+            try:
+                if os.path.exists(temp_dir):
+                    shutil.rmtree(temp_dir)
+                    log(f"Cleaned up temp directory: {temp_dir}")
+            except Exception as exc:
+                log(f"Failed to clean temp directory {temp_dir}: {exc}")
     except Exception as exc:
         log(f"PIPELINE 2 ERROR: {exc}")
 
@@ -917,6 +1021,9 @@ def run_all():
     try:
         run_vugola_pipeline()
         run_original_pipeline()
+        # Force garbage collection after pipelines to free memory
+        gc.collect()
+        log("Memory cleanup completed")
     except Exception as exc:
         log(f"run_all() error: {exc}")
 
@@ -939,6 +1046,8 @@ def start():
 
         log("Running a test A/B pipeline now...")
         run_original_pipeline()
+        gc.collect()
+        log("Initial pipeline complete, memory freed")
         
         while True:
             try:
