@@ -121,9 +121,11 @@ def get_stock_videos(topic, count=5):
 
 def create_video_local(audio_content, stock_video_urls, duration=60):
     tmp = tempfile.mkdtemp()
-    audio_path = os.path.join(tmp, "audio.mp3")
-    with open(audio_path, "wb") as f:
+    raw_path = os.path.join(tmp, "audio_raw.mp3")
+    audio_path = os.path.join(tmp, "audio.aac")
+    with open(raw_path, "wb") as f:
         f.write(audio_content)
+    subprocess.run(["ffmpeg", "-i", raw_path, "-c:a", "aac", "-y", audio_path], capture_output=True)
 
     video_paths = []
     for i, url in enumerate(stock_video_urls[:5]):
@@ -154,7 +156,7 @@ def create_video_local(audio_content, stock_video_urls, duration=60):
     result = subprocess.run([
         "ffmpeg",
         "-i", concat_path,
-        "-f", "mp3", "-i", audio_path,
+        "-i", audio_path,
         "-vf", "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920",
         "-t", str(duration),
         "-c:v", "libx264",
