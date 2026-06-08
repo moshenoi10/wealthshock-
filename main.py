@@ -1,10 +1,9 @@
-import os, requests, schedule, time, random
+import os, requests, schedule, time, random, pytz, base64
 from datetime import datetime
 
 # --- ENV VARS ---
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 ELEVEN_KEY = os.environ.get("ELEVENLABS_API_KEY")
-VUGOLA_KEY = os.environ.get("VUGOLA_API_KEY")
 YOUTUBE_KEY = os.environ.get("YOUTUBE_API_KEY")
 YT_CLIENT_ID = os.environ.get("YOUTUBE_CLIENT_ID")
 YT_CLIENT_SECRET = os.environ.get("YOUTUBE_CLIENT_SECRET")
@@ -27,12 +26,40 @@ TOPICS = [
     "things school never taught you about money",
 ]
 
-UPLOAD_TIMES = ["13:00", "16:00", "19:00", "21:00"]
-
-# ─── HELPERS ───────────────────────────────────────────
+MARKET_PEAK_HOURS = {
+    "US": {"tz": "America/New_York",  "hours": [8, 12, 17, 20, 22]},
+    "IL": {"tz": "Asia/Jerusalem",    "hours": [7, 12, 16, 20, 21]},
+    "JP": {"tz": "Asia/Tokyo",        "hours": [7, 12, 19, 21, 23]},
+    "CN": {"tz": "Asia/Shanghai",     "hours": [7, 12, 18, 20, 22]},
+}
 
 def log(msg):
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
+
+def get_best_upload_times():
+    best_times = []
+    for market, data in MARKET_PEAK_HOURS.items():
+        tz = pytz.timezone(data["tz"])
+        for hour in data["hours"]:
+            local_time = datetime.now(tz).replace(hour=hour, minute=0, second=0, microsecond=0)
+            utc_time = local_time.astimezone(pytz.utc)
+            best_times.append({
+                "market": market,
+                "local": f"{hour:02d}:00 {data['tz']}",
+                "utc": utc_time.strftime("%H:%M"),
+                "utc_hour": utc_time.hour
+            })
+    best_times.sort(key=lambda x: x["utc_hour"])
+    log("=== OPTIMAL UPLOAD SCHEDULE ===")
+    seen = set()
+    unique = []
+    for t in best_times:
+        if t["utc_hour"] not in seen:
+            seen.add(t["utc_hour"])
+            unique.append(t)
+            log(f"  {t['market']} | {t['local']} → {t['utc']} UTC")
+    log("================================")
+    return unique
 
 def get_yt_access_token():
     r = requests.post("https://oauth2.googleapis.com/token", data={
@@ -43,10 +70,9 @@ def get_yt_access_token():
     })
     return r.json().get("access_token")
 
-# ─── PIPELINE 1: VUGOLA (viral clipping) ───────────────
+# ─── PIPELINE 1: FIND VIRAL VIDEO ──────────────────────
 
 def find_viral_video(topic):
-    """Find a viral YouTube video on the topic using YouTube Data API"""
     url = "https://www.googleapis.com/youtube/v3/search"
     params = {
         "part": "snippet",
@@ -64,72 +90,15 @@ def find_viral_video(topic):
     video_id = items[0]["id"]["videoId"]
     return f"https://www.youtube.com/watch?v={video_id}"
 
-def clip_with_vugola(video_url, topic):
-    """Send video to Vugola API for AI clipping"""
-    r = requests.post(
-        "https://api.vugolaai.com/v1/clip",
-        headers={"Authorization": f"Bearer {VUGOLA_KEY}", "Content-Type": "application/json"},
-        json={
-            "video_url": video_url,
-            "platforms": ["youtube"],
-            "aspect_ratio": "9:16",
-            "min_duration": 30,
-            "max_duration": 60,
-            "captions": True,
-            "num_clips": 5
-        }
-    )
-    data = r.json()
-    log(f"Vugola job started: {data.get('job_id')}")
-    return data.get("job_id")
-
-def wait_for_vugola(job_id, timeout=300):
-    """Poll Vugola until clips are ready"""
-    for _ in range(timeout // 10):
-        r = requests.get(
-            f"https://api.vugolaai.com/v1/jobs/{job_id}",
-            headers={"Authorization": f"Bearer {VUGOLA_KEY}"}
-        )
-        data = r.json()
-        if data.get("status") == "completed":
-            return data.get("clips", [])
-        if data.get("status") == "failed":
-            log("Vugola job failed")
-            return []
-        time.sleep(10)
-    return []
-
-def schedule_vugola_to_youtube(clips):
-    """Schedule Vugola clips directly to YouTube"""
-    for clip in clips[:3]:
-        r = requests.post(
-            "https://api.vugolaai.com/v1/schedule",
-            headers={"Authorization": f"Bearer {VUGOLA_KEY}", "Content-Type": "application/json"},
-            json={
-                "clip_id": clip["id"],
-                "platform": "youtube",
-                "title": clip.get("title", "Viral Finance Short #shorts"),
-                "description": "#shorts #finance #money #viral #wealth",
-                "publish_at": "now"
-            }
-        )
-        log(f"Scheduled clip to YouTube: {r.json().get('status')}")
-
 def run_vugola_pipeline():
     topic = random.choice(TOPICS)
-    log(f"PIPELINE 1 (Vugola): {topic}")
+    log(f"PIPELINE 1 (Viral finder): {topic}")
     video_url = find_viral_video(topic)
     if not video_url:
-        log("No video found, skipping")
+        log("No video found")
         return
-    log(f"Found video: {video_url}")
-    job_id = clip_with_vugola(video_url, topic)
-    if not job_id:
-        return
-    clips = wait_for_vugola(job_id)
-    if clips:
-        schedule_vugola_to_youtube(clips)
-        log(f"Done — {len(clips)} clips uploaded")
+    log(f"Found viral video: {video_url}")
+    log("Upload this video manually to Vugola for auto-clipping")
 
 # ─── PIPELINE 2: ORIGINAL CONTENT ──────────────────────
 
@@ -143,7 +112,6 @@ Structure:
 - CTA: "Follow WealthShock for more"
 
 Return ONLY the spoken script. No labels, no brackets."""
-
     r = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]})
     data = r.json()
     if "candidates" not in data:
@@ -153,9 +121,12 @@ Return ONLY the spoken script. No labels, no brackets."""
 
 def generate_title(topic):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_KEY}"
-    prompt = f"Write a viral YouTube Shorts title (max 60 chars) for a video about: {topic}. Make it shocking and clickbait. Return ONLY the title."
+    prompt = f"Write a viral YouTube Shorts title (max 60 chars) about: {topic}. Make it shocking and clickbait. Return ONLY the title."
     r = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]})
-    return r.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+    data = r.json()
+    if "candidates" not in data:
+        return None
+    return data["candidates"][0]["content"]["parts"][0]["text"].strip()
 
 def text_to_speech(text):
     voice_id = "21m00Tcm4TlvDq8ikWAM"
@@ -177,18 +148,11 @@ def get_stock_videos(topic, count=5):
     return [v["video_files"][0]["link"] for v in videos]
 
 def create_video_shotstack(audio_b64, stock_videos, duration=60):
-    clips = []
     seg = duration / max(len(stock_videos), 1)
-    for i, url in enumerate(stock_videos):
-        clips.append({
-            "asset": {"type": "video", "src": url},
-            "start": i * seg,
-            "length": seg,
-            "fit": "cover"
-        })
-
+    clips = [{"asset": {"type": "video", "src": url}, "start": i * seg, "length": seg, "fit": "cover"}
+             for i, url in enumerate(stock_videos)]
     r = requests.post(
-        "https://api.shotstack.io/stage/render",
+        "https://api.shotstack.io/edit/stage/render",
         headers={"x-api-key": SHOTSTACK_KEY, "Content-Type": "application/json"},
         json={
             "timeline": {
@@ -201,86 +165,83 @@ def create_video_shotstack(audio_b64, stock_videos, duration=60):
             "output": {"format": "mp4", "resolution": "sd", "aspectRatio": "9:16"}
         }
     )
-    return r.json().get("response", {}).get("id")
+    data = r.json()
+    log(f"Shotstack response: {data}")
+    return data.get("response", {}).get("id")
 
 def wait_for_shotstack(render_id, timeout=300):
     for _ in range(timeout // 10):
         r = requests.get(
-            f"https://api.shotstack.io/stage/render/{render_id}",
+            f"https://api.shotstack.io/edit/stage/render/{render_id}",
             headers={"x-api-key": SHOTSTACK_KEY}
         )
         data = r.json().get("response", {})
         if data.get("status") == "done":
             return data.get("url")
         if data.get("status") == "failed":
+            log(f"Shotstack failed: {data}")
             return None
+        log(f"Shotstack status: {data.get('status')}")
         time.sleep(10)
     return None
 
 def upload_to_youtube(video_url, title, description):
     access_token = get_yt_access_token()
+    if not access_token:
+        log("Failed to get YouTube access token")
+        return False
     video_data = requests.get(video_url).content
-
     headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
     meta = {
         "snippet": {
             "title": title[:100],
             "description": description,
-            "tags": ["shorts", "finance", "money", "AI", "viral", "wealth", "investing"],
+            "tags": ["shorts", "finance", "money", "AI", "viral", "wealth"],
             "categoryId": "28"
         },
         "status": {"privacyStatus": "public", "selfDeclaredMadeForKids": False}
     }
-
     init = requests.post(
         "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status",
         headers=headers, json=meta
     )
     upload_url = init.headers.get("Location")
     if not upload_url:
-        log("Failed to get YouTube upload URL")
+        log(f"No upload URL: {init.text}")
         return False
-
     res = requests.put(upload_url,
         headers={"Content-Type": "video/mp4", "Content-Length": str(len(video_data))},
         data=video_data)
     return res.status_code in [200, 201]
 
 def run_original_pipeline():
-    import base64
     topic = random.choice(TOPICS)
     log(f"PIPELINE 2 (Original): {topic}")
-
     script = generate_script(topic)
     if not script:
-        log("Script failed — check GEMINI_API_KEY in Render")
+        log("Script failed — check GEMINI_API_KEY")
         return
     title = generate_title(topic) or f"{topic.title()} #shorts"
     log(f"Title: {title}")
-
     audio = text_to_speech(script)
     audio_b64 = base64.b64encode(audio).decode()
-
     stock_videos = get_stock_videos(topic)
     if not stock_videos:
         log("No stock videos found")
         return
-
     render_id = create_video_shotstack(audio_b64, stock_videos)
     if not render_id:
         log("Shotstack render failed")
         return
-
     video_url = wait_for_shotstack(render_id)
     if not video_url:
         log("Shotstack timed out")
         return
-
     description = f"WealthShock | {topic}\n\n#shorts #finance #AI #viral #money #wealth"
     success = upload_to_youtube(video_url, title, description)
     log(f"Upload {'successful' if success else 'failed'}: {title}")
 
-# ─── SCHEDULER ─────────────────────────────────────────
+# ─── MAIN ──────────────────────────────────────────────
 
 def run_all():
     run_vugola_pipeline()
@@ -288,10 +249,13 @@ def run_all():
 
 def start():
     log("WealthShock engine started")
-    for t in UPLOAD_TIMES:
-        schedule.every().day.at(t).do(run_all)
-    log(f"Scheduled at: {', '.join(UPLOAD_TIMES)} EST")
-    run_all()
+    best_times = get_best_upload_times()
+    for t in best_times:
+        schedule.every().day.at(t["utc"]).do(run_all)
+        log(f"Scheduled: {t['utc']} UTC ({t['market']})")
+    log("Running 2 test videos now...")
+    run_original_pipeline()
+    run_original_pipeline()
     while True:
         schedule.run_pending()
         time.sleep(30)
