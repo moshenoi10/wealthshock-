@@ -43,6 +43,28 @@
       "avg_view_percentage": null,
       "ctr": null,
       "alert_checked": false
+    },
+    {
+      "video_id": "-3zuZS-3p8o",
+      "title": "Here are a few options for a viral YouTube Shorts title under 60 characters, aiming for strong psych",
+      "topic": "Valheim: 1.0 & Deep North – Release Date Reveal Trailer",
+      "topic_category": "ai_finance",
+      "upload_time": "2026-06-08T21:10:47.621165+00:00",
+      "day_of_week": "Monday",
+      "upload_hour_utc": 21,
+      "timing_key": "Monday_21",
+      "estimated_duration": 60,
+      "duration_bucket": "45-60",
+      "title_style": "statement",
+      "ab_variant": "A",
+      "metrics_24h_fetched": false,
+      "metrics_72h_fetched": false,
+      "views_24h": null,
+      "views_72h": null,
+      "likes_24h": null,
+      "avg_view_percentage": null,
+      "ctr": null,
+      "alert_checked": false
     }
   ],
   "topic_performance": {},
