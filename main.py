@@ -322,14 +322,22 @@ def generate_hashtags(topic, title):
     return fallback_hashtags(topic, title)
 
 
-def get_stock_videos(topic, count=3):
-    # Limit to 3 max to reduce memory usage
-    count = min(count, 3)
-    query = topic if topic else "finance"
+def get_stock_videos(topic, count=4):
+    # Limit to 4 max so the edit stays lightweight and memory-friendly
+    count = min(count, 4)
+    search_terms = ["money", "cash", "wealth", "stock market", "bitcoin", "business"]
+    query = " ".join([topic] + search_terms) if topic else " ".join(search_terms)
     try:
         r = requests.get(
             "https://pixabay.com/api/videos/",
-            params={"key": PIXABAY_KEY, "q": query, "per_page": count + 2, "video_type": "film", "safesearch": "true"},
+            params={
+                "key": PIXABAY_KEY,
+                "q": query,
+                "per_page": count * 4,
+                "video_type": "film",
+                "safesearch": "true",
+                "order": "popular",
+            },
             timeout=20,
         )
         data = r.json()
@@ -337,16 +345,15 @@ def get_stock_videos(topic, count=3):
         urls = []
         for h in hits:
             videos = h.get("videos", {})
-            # Prefer smallest file size available (small -> medium -> large)
             for quality in ["small", "medium", "large"]:
                 url = videos.get(quality, {}).get("url")
                 if url and url.startswith("https://"):
                     urls.append(url)
                     break
         if not urls:
-            log("Pixabay returned no video URLs, falling back to finance search")
-            return get_stock_videos("finance", count)
-        log(f"Pixabay found {len(urls)} videos, using {min(len(urls), count)}")
+            log("Pixabay returned no finance video URLs, falling back to money query")
+            return get_stock_videos("money", count)
+        log(f"Pixabay found {len(urls)} finance clips, using {min(len(urls), count)}")
         return urls[:count]
     except Exception as exc:
         log(f"Stock video fetch failed: {exc}")
@@ -371,6 +378,399 @@ def get_stock_image(topic):
     except Exception as exc:
         log(f"Stock image fetch failed: {exc}")
     return None
+
+
+def format_ass_time(seconds):
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = seconds - hours * 3600 - minutes * 60
+    centiseconds = int((secs - int(secs)) * 100)
+    return f"{hours}:{minutes:02d}:{int(secs):02d}.{centiseconds:02d}"
+
+
+def escape_ass_path(path):
+    return path.replace("'", "\\'")
+
+
+def generate_video_ass_captions(script, duration, ass_path):
+    words = [w for w in re.findall(r"[^\s]+", script)]
+    if not words:
+        log("No caption words generated")
+        return None
+
+    interval = max(0.18, duration / len(words))
+    try:
+        with open(ass_path, "w", encoding="utf-8") as f:
+            f.write("[Script Info]\n")
+            f.write("ScriptType: v4.00+\n")
+            f.write("PlayResX: 1080\n")
+            f.write("PlayResY: 1920\n")
+            f.write("\n")
+            f.write("[V4+ Styles]\n")
+            f.write("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
+            f.write("Style: Default,Impact,72,&H00FFFFFF,&H00000000,&H00000000,&H00000000,1,0,0,0,100,100,0,0,1,4,0,8,0,0,120,1\n")
+            f.write("\n")
+            f.write("[Events]\n")
+            f.write("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
+            current = 0.0
+            for word in words:
+                end = min(duration, current + interval)
+                safe_word = word.replace("{", "\\{").replace("}", "\\}")
+                f.write(
+                    f"Dialogue: 0,{format_ass_time(current)},{format_ass_time(end)},Default,,0,0,0,,{safe_word}\n"
+                )
+                current = end
+                if current >= duration:
+                    break
+        log(f"Caption ASS generated: {ass_path}")
+        return ass_path
+    except Exception as exc:
+        log(f"Caption ASS generation failed: {exc}")
+        return None
+
+
+def get_media_duration(path):
+    try:
+        result = subprocess.run(
+            [
+                FFMPEG_BIN,
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                path,
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            log(f"Duration probe failed: {result.stderr.strip()}")
+            return None
+        return float(result.stdout.strip() or 0.0)
+    except Exception as exc:
+        log(f"Media duration failed: {exc}")
+        return None
+
+
+def download_background_music(dest_path):
+    fallback_url = "https://assets.mixkit.co/music/preview/mixkit-dark-cinematic-drums-570.mp3"
+    try:
+        if PIXABAY_KEY:
+            r = requests.get(
+                "https://pixabay.com/api/audio/",
+                params={"key": PIXABAY_KEY, "q": "lofi dramatic cinematic", "per_page": 10, "safesearch": "true"},
+                timeout=20,
+            )
+            data = r.json()
+            hits = data.get("hits", [])
+            for hit in hits:
+                candidate = hit.get("download_url") or hit.get("previews", {}).get("mp3")
+                if candidate and candidate.startswith("https://"):
+                    if stream_download(candidate, dest_path):
+                        log(f"Background music downloaded from Pixabay: {candidate}")
+                        return True
+        if stream_download(fallback_url, dest_path):
+            log(f"Background music downloaded from fallback URL")
+            return True
+    except Exception as exc:
+        log(f"Background music download failed: {exc}")
+    return False
+
+
+def mix_voice_with_music(voice_path, music_path, output_path):
+    if not os.path.exists(music_path):
+        return voice_path
+    try:
+        result = subprocess.run(
+            [
+                FFMPEG_BIN,
+                "-y",
+                "-i",
+                voice_path,
+                "-stream_loop",
+                "-1",
+                "-i",
+                music_path,
+                "-filter_complex",
+                "[1:a]volume=0.10[a1];[0:a][a1]amix=inputs=2:duration=first:dropout_transition=2",
+                "-c:a",
+                "pcm_s16le",
+                "-ar",
+                "44100",
+                output_path,
+            ],
+            capture_output=True,
+        )
+        if result.returncode != 0 or not os.path.exists(output_path):
+            log(f"Music mix failed: {result.stderr.decode()[-300:]}")
+            return voice_path
+        log(f"Voice and music mixed: {output_path}")
+        return output_path
+    except Exception as exc:
+        log(f"Music mixing failed: {exc}")
+        return voice_path
+
+
+def generate_title_card_video(title_text, tmp, duration=3.0):
+    try:
+        image_path = os.path.join(tmp, "title_card.png")
+        video_path = os.path.join(tmp, "title_card.mp4")
+        bg = make_gradient_background(THUMBNAIL_SIZE)
+        draw = ImageDraw.Draw(bg)
+        title_font = load_font(120)
+        lines = wrap(title_text.upper(), width=12)
+        y = 360
+        for line in lines[:4]:
+            bbox = draw.textbbox((0, 0), line, font=title_font)
+            text_width = bbox[2] - bbox[0]
+            x = max(40, (THUMBNAIL_SIZE[0] - text_width) // 2)
+            draw.text((x, y), line, font=title_font, fill="#FFD700", stroke_width=6, stroke_fill="#000000")
+            y += bbox[3] - bbox[1] + 24
+        bg.save(image_path)
+
+        frames = int(duration * 25)
+        zoom_expr = f"if(lte(on,1),1,1+0.05*on/{frames})"
+        filter_expr = (
+            f"scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,"
+            f"zoompan=z='{zoom_expr}':d={frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1080x1920,"
+            f"fps=25"
+        )
+        result = subprocess.run(
+            [
+                FFMPEG_BIN,
+                "-y",
+                "-framerate",
+                "25",
+                "-loop",
+                "1",
+                "-i",
+                image_path,
+                "-t",
+                str(duration),
+                "-vf",
+                filter_expr,
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-an",
+                video_path,
+            ],
+            capture_output=True,
+        )
+        if result.returncode != 0 or not os.path.exists(video_path):
+            log(f"Title card video creation failed: {result.stderr.decode()[-300:]}")
+            return None
+        return video_path
+    except Exception as exc:
+        log(f"Title card creation failed: {exc}")
+        return None
+
+
+def process_stock_clip(url, index, tmp, duration=3.8):
+    input_path = os.path.join(tmp, f"clip_{index}.mp4")
+    output_path = os.path.join(tmp, f"clip_{index}_proc.mp4")
+    if not stream_download(url, input_path, chunk_size=8192):
+        log(f"Failed to download clip {url}")
+        return None
+    frames = int(duration * 25)
+    try:
+        zoom_expr = f"if(lte(on,1),1,1+0.05*on/{frames})"
+        filter_expr = (
+            f"scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,"
+            f"zoompan=z='{zoom_expr}':d={frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1080x1920,"
+            f"fps=25,fade=t=in:st=0:d=0.5,fade=t=out:st={duration - 0.5}:d=0.5"
+        )
+        result = subprocess.run(
+            [
+                FFMPEG_BIN,
+                "-y",
+                "-i",
+                input_path,
+                "-t",
+                str(duration),
+                "-filter_complex",
+                filter_expr,
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-an",
+                output_path,
+            ],
+            capture_output=True,
+        )
+        if result.returncode != 0 or not os.path.exists(output_path):
+            log(f"Clip processing failed, retrying without zoom: {result.stderr.decode()[-300:]}")
+            result = subprocess.run(
+                [
+                    FFMPEG_BIN,
+                    "-y",
+                    "-i",
+                    input_path,
+                    "-t",
+                    str(duration),
+                    "-vf",
+                    "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,fps=25,fade=t=in:st=0:d=0.5,fade=t=out:st={:.2f}:d=0.5".format(duration - 0.5),
+                    "-c:v",
+                    "libx264",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-an",
+                    output_path,
+                ],
+                capture_output=True,
+            )
+        if result.returncode != 0 or not os.path.exists(output_path):
+            log(f"Clip processing ultimately failed: {result.stderr.decode()[-300:]}")
+            return None
+        return output_path
+    except Exception as exc:
+        log(f"Clip processing exception: {exc}")
+        return None
+
+
+def create_video_local(audio_path, stock_video_urls, title_text, script, duration=60):
+    if not os.path.exists(audio_path):
+        log("Audio path missing for video creation")
+        return None
+    if not stock_video_urls:
+        log("No stock videos available for premium edit")
+        return None
+
+    tmp = tempfile.mkdtemp()
+    try:
+        music_path = os.path.join(tmp, "background_music.mp3")
+        if download_background_music(music_path):
+            mixed_path = os.path.join(tmp, "mixed_audio.wav")
+            audio_input_path = mix_voice_with_music(audio_path, music_path, mixed_path)
+        else:
+            log("Proceeding without background music")
+            audio_input_path = audio_path
+
+        audio_duration = get_media_duration(audio_input_path) or duration
+        target_duration = min(duration, audio_duration)
+        captions_path = os.path.join(tmp, "captions.ass")
+        if not generate_video_ass_captions(script, audio_duration, captions_path):
+            log("Caption generation failed")
+            return None
+
+        title_video = generate_title_card_video(title_text, tmp, duration=3.0)
+        if not title_video:
+            log("Title card generation failed")
+            return None
+
+        processed_clips = []
+        for index, url in enumerate(stock_video_urls):
+            clip_path = process_stock_clip(url, index, tmp, duration=3.8)
+            if clip_path:
+                processed_clips.append(clip_path)
+        if not processed_clips:
+            log("No processed stock clips available")
+            return None
+
+        clip_duration = 3.8
+        title_duration = 3.0
+        remaining = max(0.0, target_duration - title_duration)
+        segments_needed = max(1, int((remaining + clip_duration - 1e-9) // clip_duration))
+        concat_clips = [title_video]
+        for i in range(segments_needed):
+            concat_clips.append(processed_clips[i % len(processed_clips)])
+
+        concat_list = os.path.join(tmp, "concat.txt")
+        with open(concat_list, "w", encoding="utf-8") as f:
+            for clip_path in concat_clips:
+                f.write(f"file '{clip_path}'\n")
+
+        concat_path = os.path.join(tmp, "concat.mp4")
+        concat_result = subprocess.run(
+            [
+                FFMPEG_BIN,
+                "-y",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                concat_list,
+                "-c",
+                "copy",
+                concat_path,
+            ],
+            capture_output=True,
+        )
+        if concat_result.returncode != 0 or not os.path.exists(concat_path):
+            log(f"Concat failed, retrying re-encode: {concat_result.stderr.decode()[-300:]}")
+            concat_result = subprocess.run(
+                [
+                    FFMPEG_BIN,
+                    "-y",
+                    "-f",
+                    "concat",
+                    "-safe",
+                    "0",
+                    "-i",
+                    concat_list,
+                    "-c:v",
+                    "libx264",
+                    "-pix_fmt",
+                    "yuv420p",
+                    concat_path,
+                ],
+                capture_output=True,
+            )
+        if concat_result.returncode != 0 or not os.path.exists(concat_path):
+            log(f"Final concat failed: {concat_result.stderr.decode()[-300:]}")
+            return None
+
+        final_output = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
+        subtitles_filter = (
+            f"subtitles='{escape_ass_path(captions_path)}'"
+            ":force_style='FontName=Impact,FontSize=72,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=4,Alignment=8,MarginV=120'"
+        )
+        result = subprocess.run(
+            [
+                FFMPEG_BIN,
+                "-y",
+                "-i",
+                concat_path,
+                "-i",
+                audio_input_path,
+                "-vf",
+                subtitles_filter,
+                "-map",
+                "0:v:0",
+                "-map",
+                "1:a:0",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
+                "-ar",
+                "44100",
+                "-shortest",
+                final_output,
+            ],
+            capture_output=True,
+        )
+        if result.returncode != 0 or not os.path.exists(final_output):
+            log(f"Final video render failed: {result.stderr.decode()[-300:]}")
+            return None
+
+        log(f"Final video ready: {final_output} ({os.path.getsize(final_output) // 1024}KB)")
+        return final_output
+    finally:
+        try:
+            if os.path.exists(tmp):
+                shutil.rmtree(tmp)
+        except Exception as exc:
+            log(f"Failed to clean temp directory: {exc}")
 
 
 def load_font(size):
@@ -902,12 +1302,12 @@ def run_original_pipeline():
             log("Audio generation failed")
             return
 
-        image_url = get_stock_image(topic)
-        if not image_url:
-            log("No stock image found")
+        stock_videos = get_stock_videos(topic, count=4)
+        if not stock_videos:
+            log("No stock videos found")
             return
 
-        video_path = create_video_local(audio_path, image_url, duration=60)
+        video_path = create_video_local(audio_path, stock_videos, title_a, script, duration=60)
         if not video_path:
             log("Video creation failed")
             return

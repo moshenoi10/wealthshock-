@@ -53,8 +53,9 @@ WealthShock is now a full automation system for finance shorts with:
 
 ## Features
 
-- `main.py` now builds YouTube Shorts from a single static background image plus adaptive gTTS voiceover.
-- The pipeline uses streamed downloads and file-based uploads to reduce memory footprint for 512MB Render deployments.
+- `main.py` now builds a professional viral finance edit with stock clips, captions, title card animation, and mixed background music.
+- The pipeline burns captions into the video word-by-word using an ASS subtitle overlay and positions them in the bottom third.
+- It uses streamed downloads, clip-level re-encode, zoom-in effects, and aggressive 1080x1920 crop/fill editing for a premium vertical Shorts look.
 - It generates two viral title variants and uploads both for A/B testing.
 - Automatic thumbnails are generated with bold hook text and finance-focused branding.
 - GitHub Actions run CI on push and can trigger Render deployments automatically when secrets are configured.
