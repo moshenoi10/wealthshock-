@@ -246,43 +246,60 @@ def choose_topic():
 
 
 def generate_script(topic):
-    if not GEMINI_KEY:
-        log("Missing Gemini API key")
-        return None
-    prompt = f"""Create a 60-second viral YouTube Shorts script about: {topic}
+    # Prefer Gemini when API key is provided, otherwise use a local template fallback
+    if GEMINI_KEY:
+        try:
+            prompt = f"""Create a 60-second viral YouTube Shorts script about: {topic}
 - Start with an emotional hook that feels shocking or controversial
 - Include 3 brief eye-opening facts or secrets with believable numbers
 - Add a counterintuitive twist or belief that people disagree with
 - End with a powerful CTA: follow, save, or share
 Return ONLY the spoken script, with clear sentence breaks."""
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={GEMINI_KEY}"
-    r = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=30)
-    data = r.json()
-    if "candidates" not in data:
-        log(f"Gemini script error: {data}")
-        return None
-    return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={GEMINI_KEY}"
+            r = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=30)
+            data = r.json()
+            if "candidates" in data:
+                return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+            log(f"Gemini script error: {data}")
+        except Exception as exc:
+            log(f"Gemini call failed: {exc}")
+
+    # Local fallback: craft a short scripted narrative with hooks/facts/CTA
+    def local_generate_script(topic_text):
+        hook = f"You won't believe this about {topic_text.split()[0]}!"
+        facts = []
+        for i in range(3):
+            val = random.randint(2, 95)
+            facts.append(f"Fact {i+1}: {val}% of people are surprised by this about {topic_text}.")
+        twist = f"But here's the twist: most advice gets this backwards — {topic_text} works differently."
+        cta = "If you want more, follow and save this video."
+        parts = [hook] + facts + [twist, cta]
+        return " ".join(parts)
+
+    return local_generate_script(topic)
 
 
 def generate_title(topic, variant=None):
-    if not GEMINI_KEY:
-        fallback = f"{topic.title()} #shorts"
-        if variant:
-            fallback += f" ({variant})"
-        return fallback
-    prompt = f"Write a viral YouTube Shorts title under 60 characters about: {topic}. Use strong psychological triggers, controversy, or shocking value."
+    # Try Gemini first
+    if GEMINI_KEY:
+        try:
+            prompt = f"Write a viral YouTube Shorts title under 60 characters about: {topic}. Use strong psychological triggers, controversy, or shocking value."
+            if variant:
+                prompt += f" Create an alternate title that is different from the first one. Mark it as variant {variant}."
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={GEMINI_KEY}"
+            r = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=30)
+            data = r.json()
+            if "candidates" in data:
+                return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+            log(f"Gemini title error: {data}")
+        except Exception as exc:
+            log(f"Gemini title call failed: {exc}")
+
+    # Local fallback title
+    base = topic.title()
     if variant:
-        prompt += f" Create an alternate title that is different from the first one. Mark it as variant {variant}."
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={GEMINI_KEY}"
-    r = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=30)
-    data = r.json()
-    if "candidates" not in data:
-        log(f"Gemini title error: {data}")
-        fallback = f"{topic.title()} #shorts"
-        if variant:
-            fallback += f" ({variant})"
-        return fallback
-    return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+        return f"{base} — {variant}"
+    return f"{base} #shorts"
 
 
 def sanitize_hashtag(text):
@@ -301,20 +318,22 @@ def fallback_hashtags(topic, title):
 
 
 def generate_hashtags(topic, title):
-    if not GEMINI_KEY:
-        return fallback_hashtags(topic, title)
-    prompt = f"Generate 10 viral YouTube hashtags for this Shorts topic and title: {topic} / {title}. Focus on finance, money, wealth, AI, viral growth, and viewer curiosity. Return only hashtags separated by spaces."
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={GEMINI_KEY}"
-    r = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=30)
-    data = r.json()
-    if "candidates" not in data:
-        log(f"Gemini hashtags error: {data}")
-        return fallback_hashtags(topic, title)
-    text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-    tags = [sanitize_hashtag(tag) for tag in re.split(r"\s+", text) if tag.startswith("#")]
-    if not tags:
-        tags = fallback_hashtags(topic, title)
-    return tags[:12]
+    if GEMINI_KEY:
+        try:
+            prompt = f"Generate 10 viral YouTube hashtags for this Shorts topic and title: {topic} / {title}. Focus on finance, money, wealth, AI, viral growth, and viewer curiosity. Return only hashtags separated by spaces."
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={GEMINI_KEY}"
+            r = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=30)
+            data = r.json()
+            if "candidates" in data:
+                text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+                tags = [sanitize_hashtag(tag) for tag in re.split(r"\s+", text) if tag.startswith("#")]
+                if tags:
+                    return tags[:12]
+            log(f"Gemini hashtags error: {data}")
+        except Exception as exc:
+            log(f"Gemini hashtags call failed: {exc}")
+
+    return fallback_hashtags(topic, title)
 
 
 def get_stock_videos(topic, count=5):
