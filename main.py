@@ -145,7 +145,15 @@ def get_stock_videos(topic, count=5):
         params={"query": topic, "per_page": count, "orientation": "portrait"}
     )
     videos = r.json().get("videos", [])
-    return [v["video_files"][0]["link"] for v in videos]
+    urls = []
+    for v in videos:
+        for f in v.get("video_files", []):
+            link = f.get("link", "")
+            if link.startswith("https://") and f.get("quality") in ["sd", "hd"]:
+                urls.append(link)
+                break
+    log(f"Pexels found {len(urls)} videos")
+    return urls[:count]
 
 def create_video_shotstack(audio_b64, stock_videos, duration=60):
     seg = duration / max(len(stock_videos), 1)
