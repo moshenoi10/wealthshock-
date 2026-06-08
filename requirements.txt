@@ -1,3 +1,6 @@
 requests
 schedule
 pytz
+python-dotenv
+imageio-ffmpeg
+Pillow
