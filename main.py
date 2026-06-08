@@ -31,6 +31,12 @@ YT_CLIENT_SECRET = os.environ.get("YOUTUBE_CLIENT_SECRET")
 YT_REFRESH_TOKEN = os.environ.get("YOUTUBE_REFRESH_TOKEN")
 PIXABAY_KEY = os.environ.get("PIXABAY_API_KEY")
 
+YOUTUBE_OAUTH_SCOPES = [
+    "https://www.googleapis.com/auth/youtube.upload",
+    "https://www.googleapis.com/auth/youtube.readonly",
+    "https://www.googleapis.com/auth/youtube.force-ssl",
+]
+
 TOPICS = [
     "shocking money facts most people don't know",
     "AI tools that will make you rich in 2025",
@@ -108,6 +114,21 @@ def get_yt_access_token():
     return data["access_token"]
 
 
+def get_youtube_oauth_url(redirect_uri, access_type="offline"):
+    if not YT_CLIENT_ID:
+        return None
+    scope = "+".join(YOUTUBE_OAUTH_SCOPES)
+    return (
+        "https://accounts.google.com/o/oauth2/v2/auth"
+        f"?client_id={YT_CLIENT_ID}"
+        f"&redirect_uri={redirect_uri}"
+        "&response_type=code"
+        f"&scope={scope}"
+        f"&access_type={access_type}"
+        "&prompt=consent"
+    )
+
+
 def get_channel_best_days():
     access_token = get_yt_access_token()
     if not access_token:
@@ -144,22 +165,36 @@ def get_channel_best_days():
     return day_names
 
 
-def trending_topics(geo="US", count=8):
+def trending_topics(region="US", count=8):
+    if not YOUTUBE_KEY:
+        log("Missing YouTube API key for trending topics")
+        return []
     try:
-        url = f"https://trends.google.com/trends/trendingsearches/daily/rss?geo={geo}"
-        resp = requests.get(url, timeout=15)
+        url = "https://www.googleapis.com/youtube/v3/videos"
+        resp = requests.get(
+            url,
+            params={
+                "part": "snippet",
+                "chart": "mostPopular",
+                "regionCode": region,
+                "maxResults": count,
+                "key": YOUTUBE_KEY,
+            },
+            timeout=20,
+        )
         if resp.status_code != 200:
-            log(f"Trends RSS status {resp.status_code}")
+            log(f"YouTube trending status {resp.status_code}: {resp.text[:200]}")
             return []
-        root = ET.fromstring(resp.text)
+        data = resp.json()
+        items = data.get("items", [])
         topics = []
-        for item in root.findall(".//item"):
-            title = item.findtext("title")
-            if title and title.lower() != "trending searches":
+        for item in items:
+            title = item.get("snippet", {}).get("title")
+            if title:
                 topics.append(title.strip())
             if len(topics) >= count:
                 break
-        log(f"Google Trends discovered {len(topics)} topics")
+        log(f"YouTube Trending discovered {len(topics)} topics")
         return topics
     except Exception as exc:
         log(f"Trend discovery failed: {exc}")
@@ -380,7 +415,7 @@ def call_elevenlabs_tts(text):
         headers={"xi-api-key": ELEVEN_KEY, "Content-Type": "application/json", "Accept": "audio/mpeg"},
         json={
             "text": text,
-            "model_id": "eleven_monolingual_v1",
+            "model_id": "eleven_turbo_v2_5",
             "voice_settings": {"stability": random.uniform(0.35, 0.75), "similarity_boost": random.uniform(0.4, 0.9)},
             "output_format": "mp3_44100_128",
         },

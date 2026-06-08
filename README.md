@@ -2,7 +2,7 @@
 
 WealthShock is now a full automation system for finance shorts with:
 
-- Trending topic discovery via Google Trends RSS
+- Trending topic discovery via YouTube Trending videos
 - Gemini-powered viral scripts with controversy, stats, shock hooks, and CTAs
 - Title A/B testing with two separate uploads per video
 - Automatic hashtag research for maximum reach
