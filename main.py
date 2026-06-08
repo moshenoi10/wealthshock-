@@ -159,6 +159,8 @@ def get_stock_videos(topic, count=5):
                 urls.append(url)
                 break
     log(f"Pixabay found {len(urls)} videos for: {topic}")
+    if urls:
+        log(f"Sample URL: {urls[0][:80]}")
     return urls[:count]
 
 def create_video_shotstack(audio_b64, stock_videos, duration=60):
@@ -181,7 +183,11 @@ def create_video_shotstack(audio_b64, stock_videos, duration=60):
     )
     data = r.json()
     log(f"Shotstack response: {data}")
-    return data.get("response", {}).get("id")
+    response = data.get("response")
+    if isinstance(response, dict):
+        return response.get("id")
+    log(f"Shotstack error: {response}")
+    return None
 
 def wait_for_shotstack(render_id, timeout=300):
     for _ in range(timeout // 10):
