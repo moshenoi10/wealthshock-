@@ -103,7 +103,7 @@ def run_vugola_pipeline():
 # ─── PIPELINE 2: ORIGINAL CONTENT ──────────────────────
 
 def generate_script(topic):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}"
     prompt = f"""Write a 60-second viral YouTube Shorts script about: {topic}
 
 Structure:
@@ -120,7 +120,7 @@ Return ONLY the spoken script. No labels, no brackets."""
     return data["candidates"][0]["content"]["parts"][0]["text"]
 
 def generate_title(topic):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}"
     prompt = f"Write a viral YouTube Shorts title (max 60 chars) about: {topic}. Make it shocking and clickbait. Return ONLY the title."
     r = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]})
     data = r.json()
