@@ -344,38 +344,89 @@ def find_viral_video(topic):
     return None
 
 
-# ─── Pixabay stock videos ─────────────────────────────────────────────────────
+# ─── Pixabay stock videos (multi-keyword, context-matched) ───────────────────
 
-def get_stock_videos(topic, count=4):
+# Base finance keyword sets — always queried for visual variety
+_BASE_CLIP_QUERIES = [
+    "money cash dollar bills finance",
+    "stock market trading charts graphs",
+    "bitcoin cryptocurrency blockchain technology",
+    "luxury wealth success millionaire",
+    "business office corporate finance",
+    "investment savings bank gold",
+]
+
+# Script-pattern → Pixabay query mapping for semantic matching
+_SCRIPT_CLIP_MAP = {
+    ("stock", "market", "trading", "invest", "nasdaq", "sp500"): "stock market trading charts",
+    ("bitcoin", "crypto", "blockchain", "coin", "defi"):          "bitcoin cryptocurrency digital",
+    ("rich", "wealth", "luxury", "millionaire", "billionaire"):   "luxury wealth success lifestyle",
+    ("bank", "loan", "debt", "credit", "interest"):               "bank finance money institution",
+    ("business", "entrepreneur", "startup", "company"):           "business corporate office success",
+    ("income", "salary", "earn", "passive", "hustle"):            "income money earning finance",
+    ("save", "saving", "budget", "spend", "frugal"):              "saving money piggy bank",
+    ("ai", "artificial", "technology", "future"):                 "technology artificial intelligence",
+}
+
+
+def get_varied_stock_clips(script, count=15):
+    """
+    Query Pixabay with multiple finance keyword sets for visual variety.
+    Script is scanned for topic keywords to prioritise relevant visuals.
+    Returns up to `count` unique clip URLs.
+    """
     if not PIXABAY_KEY:
         log("Missing Pixabay API key")
         return []
-    count = min(count, 4)
-    query = f"{topic} money finance wealth business"
-    for attempt in range(3):
-        try:
-            resp = requests.get(
-                "https://pixabay.com/api/videos/",
-                params={"key": PIXABAY_KEY, "q": query, "per_page": count * 4,
-                        "video_type": "film", "safesearch": "true", "order": "popular"},
-                timeout=20,
-            )
-            urls = []
-            for h in resp.json().get("hits", []):
-                videos = h.get("videos", {})
-                for quality in ["small", "medium", "large"]:
-                    url = videos.get(quality, {}).get("url")
-                    if url and url.startswith("https://"):
-                        urls.append(url)
-                        break
-            if urls:
-                log(f"Pixabay: {len(urls)} clips found")
-                return urls[:count]
-        except Exception as exc:
-            log(f"Pixabay attempt {attempt + 1} failed: {exc}")
-            time.sleep(3)
-    log("Pixabay returned no videos")
-    return []
+
+    script_lower = script.lower()
+
+    # Build priority queries from script content
+    priority = []
+    for patterns, query in _SCRIPT_CLIP_MAP.items():
+        if any(kw in script_lower for kw in patterns):
+            priority.append(query)
+
+    # Combine: priority first, then base queries (deduplicated)
+    queries = priority + [q for q in _BASE_CLIP_QUERIES if q not in priority]
+    queries = queries[:6]  # cap at 6 API calls
+
+    per_query = max(3, count // len(queries) + 2)
+    seen, urls = set(), []
+
+    for query in queries:
+        if len(urls) >= count:
+            break
+        for attempt in range(2):
+            try:
+                resp = requests.get(
+                    "https://pixabay.com/api/videos/",
+                    params={
+                        "key": PIXABAY_KEY,
+                        "q": query,
+                        "per_page": per_query * 2,
+                        "video_type": "film",
+                        "safesearch": "true",
+                        "order": "popular",
+                    },
+                    timeout=20,
+                )
+                for hit in resp.json().get("hits", []):
+                    for quality in ["small", "medium"]:
+                        url = hit.get("videos", {}).get(quality, {}).get("url")
+                        if url and url.startswith("https://") and url not in seen:
+                            seen.add(url)
+                            urls.append(url)
+                            break
+                break
+            except Exception as exc:
+                log(f"Pixabay '{query[:30]}' attempt {attempt+1}: {exc}")
+                time.sleep(2)
+
+    random.shuffle(urls)
+    result = urls[:count]
+    log(f"Pixabay: {len(result)} varied clips from {len(queries)} keyword queries")
+    return result
 
 
 # ─── TTS (MP3 only, no ffmpeg on Render) ─────────────────────────────────────
@@ -673,7 +724,7 @@ def run_original_pipeline():
             return
         temp_dirs.append(os.path.dirname(audio_path))
 
-        stock_urls = get_stock_videos(topic, count=4)
+        stock_urls = get_varied_stock_clips(script, count=15)
         if not stock_urls:
             log("No stock videos found — aborting pipeline")
             return

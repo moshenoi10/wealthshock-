@@ -10,11 +10,11 @@ on:
         required: true
         type: string
       stock_video_urls:
-        description: 'JSON array of Pixabay finance/money video URLs'
+        description: 'JSON array of Pixabay finance/money video URLs (15-20)'
         required: true
         type: string
       title:
-        description: 'Video title for the animated title card'
+        description: 'Hook title text for the animated opening card'
         required: true
         type: string
       script:
@@ -24,9 +24,9 @@ on:
 
 jobs:
   render:
-    name: Render video with ffmpeg
+    name: Render professional Shorts video
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 10
 
     steps:
       - name: Checkout repository
@@ -40,14 +40,21 @@ jobs:
           python-version: '3.11'
           cache: pip
 
-      - name: Install system dependencies
+      - name: Install system dependencies + fonts
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
             ffmpeg \
             fonts-dejavu-core \
-            libass9 \
-            libass-dev
+            fonts-liberation \
+            libass9
+
+          # Bebas Neue — the standard font for viral Shorts captions
+          sudo curl -fsSL \
+            "https://github.com/dharmatype/Bebas-Neue/raw/master/Fonts/BN/TTF/BebasNeue-Regular.ttf" \
+            -o /usr/share/fonts/truetype/BebasNeue-Regular.ttf \
+            && sudo fc-cache -f \
+            || echo "Bebas Neue download failed — DejaVu Sans Bold will be used"
 
       - name: Install Python dependencies
         run: pip install -r requirements_gha.txt
