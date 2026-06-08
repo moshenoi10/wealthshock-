@@ -97,10 +97,13 @@ def generate_title(topic):
 def text_to_speech(text):
     r = requests.post(
         "https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM",
-        headers={"xi-api-key": ELEVEN_KEY, "Content-Type": "application/json"},
+        headers={"xi-api-key": ELEVEN_KEY, "Content-Type": "application/json",
+                 "Accept": "audio/mpeg"},
         json={"text": text, "model_id": "eleven_monolingual_v1",
-              "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}}
+              "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
+              "output_format": "mp3_44100_128"}
     )
+    log(f"ElevenLabs content-type: {r.headers.get('content-type')} size: {len(r.content)}")
     return r.content
 
 def get_stock_videos(topic, count=5):
