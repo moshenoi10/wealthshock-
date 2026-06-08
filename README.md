@@ -6,16 +6,17 @@ WealthShock is now a full automation system for finance shorts with:
 - Gemini-powered viral scripts with controversy, stats, shock hooks, and CTAs
 - Title A/B testing with two separate uploads per video
 - Automatic hashtag research for maximum reach
-- Dynamic ElevenLabs voiceover with varied pace and emphasis
+- gTTS voiceovers with adaptive pacing and expressive pitch, no API key required
 - Custom thumbnail generation with bold text overlays
 - YouTube analytics-based upload timing
+- Render self-healing deployment automation with GitHub Actions
 - Local A/B test storage and performance tracking
 
 ## Requirements
 
 - Python 3.9+
 - The packages in `requirements.txt`
-- A local `.env` file with your API keys
+- A local `.env` file with your API keys and deployment secrets
 
 ## Setup
 
@@ -23,17 +24,20 @@ WealthShock is now a full automation system for finance shorts with:
    ```bash
    python3 -m pip install -r requirements.txt
    ```
-2. Create `.env` with your keys:
-   ```text
-   GEMINI_API_KEY=...
-   ELEVENLABS_API_KEY=...
-   PIXABAY_API_KEY=...
-   YOUTUBE_API_KEY=...
-   YOUTUBE_CLIENT_ID=...
-   YOUTUBE_CLIENT_SECRET=...
-   YOUTUBE_REFRESH_TOKEN=...
+2. Copy `.env.example` to `.env` and fill in your secrets:
+   ```bash
+   cp .env.example .env
    ```
-3. Run the pipeline:
+3. Set values for:
+   ```text
+   GEMINI_API_KEY=
+   PIXABAY_API_KEY=
+   YOUTUBE_API_KEY=
+   YOUTUBE_CLIENT_ID=
+   YOUTUBE_CLIENT_SECRET=
+   YOUTUBE_REFRESH_TOKEN=
+   ```
+4. Run the pipeline:
    ```bash
    python3 main.py
    ```

@@ -15,6 +15,7 @@ import pytz
 import requests
 import schedule
 from dotenv import load_dotenv
+from gtts import gTTS
 from PIL import Image, ImageDraw, ImageFont
 
 load_dotenv()
@@ -24,7 +25,6 @@ AB_TEST_FILE = os.path.join(BASE_DIR, "ab_tests.json")
 THUMBNAIL_SIZE = (1080, 1920)
 
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
-ELEVEN_KEY = os.environ.get("ELEVENLABS_API_KEY")
 YOUTUBE_KEY = os.environ.get("YOUTUBE_API_KEY")
 YT_CLIENT_ID = os.environ.get("YOUTUBE_CLIENT_ID")
 YT_CLIENT_SECRET = os.environ.get("YOUTUBE_CLIENT_SECRET")
@@ -199,6 +199,38 @@ def trending_topics(region="US", count=8):
     except Exception as exc:
         log(f"Trend discovery failed: {exc}")
         return []
+
+
+def find_viral_video(topic):
+    if not YOUTUBE_KEY:
+        log("Missing YouTube API key for viral video discovery")
+        return None
+    try:
+        url = "https://www.googleapis.com/youtube/v3/search"
+        resp = requests.get(
+            url,
+            params={
+                "part": "snippet",
+                "q": topic,
+                "type": "video",
+                "order": "viewCount",
+                "maxResults": 3,
+                "regionCode": "US",
+                "key": YOUTUBE_KEY,
+            },
+            timeout=20,
+        )
+        if resp.status_code != 200:
+            log(f"Viral video search error {resp.status_code}: {resp.text[:200]}")
+            return None
+        items = resp.json().get("items", [])
+        for item in items:
+            video_id = item.get("id", {}).get("videoId")
+            if video_id:
+                return f"https://www.youtube.com/watch?v={video_id}"
+    except Exception as exc:
+        log(f"Viral video discovery failed: {exc}")
+    return None
 
 
 def choose_topic():
@@ -406,25 +438,15 @@ def generate_thumbnail(topic, title, hashtags=None):
     return path
 
 
-def call_elevenlabs_tts(text):
-    if not ELEVEN_KEY:
-        log("Missing ElevenLabs API key")
+def call_gtts(text, speaking_rate=1.0, pitch=0.0):
+    try:
+        tts = gTTS(text=text, lang="en", slow=False)
+        audio_buffer = BytesIO()
+        tts.write_to_fp(audio_buffer)
+        return audio_buffer.getvalue()
+    except Exception as exc:
+        log(f"gTTS error: {exc}")
         return None
-    r = requests.post(
-        "https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM",
-        headers={"xi-api-key": ELEVEN_KEY, "Content-Type": "application/json", "Accept": "audio/mpeg"},
-        json={
-            "text": text,
-            "model_id": "eleven_turbo_v2_5",
-            "voice_settings": {"stability": random.uniform(0.35, 0.75), "similarity_boost": random.uniform(0.4, 0.9)},
-            "output_format": "mp3_44100_128",
-        },
-        timeout=30,
-    )
-    if r.status_code != 200:
-        log(f"ElevenLabs TTS error {r.status_code}: {r.text[:300]}")
-        return None
-    return r.content
 
 
 def convert_audio_segment(mp3_path, wav_path, tempo=1.0, volume=1.0):
@@ -474,7 +496,7 @@ def text_to_speech_fallback(text):
     tmp = tempfile.mkdtemp()
     mp3_path = os.path.join(tmp, "fallback.mp3")
     wav_path = os.path.join(tmp, "fallback.wav")
-    audio_data = call_elevenlabs_tts(text)
+    audio_data = call_gtts(text, speaking_rate=1.0, pitch=-1.0)
     if not audio_data:
         return None
     with open(mp3_path, "wb") as f:
@@ -498,7 +520,7 @@ def text_to_speech_dynamic(script):
             continue
         mp3_path = os.path.join(tmp, f"segment_{index}.mp3")
         wav_path = os.path.join(tmp, f"segment_{index}.wav")
-        audio_data = call_elevenlabs_tts(segment)
+        audio_data = call_gtts(segment, speaking_rate=1.0 + random.uniform(-0.08, 0.12), pitch=random.uniform(-2.0, 2.5))
         if not audio_data:
             log("Dynamic TTS failed, falling back to full text")
             return text_to_speech_fallback(script)
