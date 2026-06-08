@@ -27,6 +27,8 @@ import schedule
 from dotenv import load_dotenv
 from gtts import gTTS
 
+import analytics as analytics_module
+
 load_dotenv()
 
 # ─── Environment variables ───────────────────────────────────────────────────
@@ -41,8 +43,22 @@ GH_REPO = os.environ.get("GH_REPO")  # "owner/repo"
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 AB_TEST_FILE = os.path.join(BASE_DIR, "ab_tests.json")
+ANALYTICS_DB_FILE = os.path.join(BASE_DIR, "performance_db.json")
 
 GEMINI_MODEL = "gemini-2.5-flash-lite"
+
+_analytics_db = None
+
+
+def get_db() -> analytics_module.PerformanceDB:
+    global _analytics_db
+    if _analytics_db is None:
+        _analytics_db = analytics_module.PerformanceDB(
+            ANALYTICS_DB_FILE,
+            gh_pat=os.environ.get("GH_PAT"),
+            gh_repo=os.environ.get("GH_REPO"),
+        )
+    return _analytics_db
 
 TOPICS = [
     "shocking money facts most people don't know",
@@ -223,13 +239,14 @@ def _gemini_generate(prompt):
         return None
 
 
-def generate_script(topic):
+def generate_script(topic, target_duration=60):
     prompt = (
-        f"Create a 60-second viral YouTube Shorts script about: {topic}\n"
+        f"Create a {target_duration}-second viral YouTube Shorts script about: {topic}\n"
         "- Start with an emotional hook that feels shocking or controversial\n"
         "- Include 3 brief eye-opening facts or secrets with believable numbers\n"
         "- Add a counterintuitive twist that most people disagree with\n"
         "- End with a powerful CTA: follow, save, or share\n"
+        f"- Aim for exactly {target_duration} seconds of spoken content at natural pace\n"
         "Return ONLY the spoken script, no labels, with clear sentence breaks."
     )
     result = _gemini_generate(prompt)
@@ -242,11 +259,21 @@ def generate_script(topic):
     return " ".join([hook] + facts + [twist, "Follow and save this video right now."])
 
 
-def generate_title(topic, variant=None):
+def generate_title(topic, variant=None, style_hint=None):
+    style_instructions = {
+        "question": "Phrase it as a question that triggers curiosity.",
+        "number_list": "Start with a number (e.g. '5 things', '3 secrets').",
+        "secret_reveal": "Frame it as a secret or hidden truth being exposed.",
+        "shocking_statement": "Make it a shocking, unbelievable statement.",
+        "statement": "Use a bold, direct statement.",
+    }
+    style_guide = style_instructions.get(style_hint, "") if style_hint else ""
     prompt = (
         f"Write a viral YouTube Shorts title under 60 characters about: {topic}. "
         "Use strong psychological triggers, controversy, or shocking value."
     )
+    if style_guide:
+        prompt += f" {style_guide}"
     if variant:
         prompt += f" Make it variant {variant} with a different angle or wording."
     result = _gemini_generate(prompt)
@@ -317,9 +344,29 @@ def trending_topics(region="US", count=8):
         return []
 
 
-def choose_topic():
+def choose_topic(force_category=None):
     trending = trending_topics()
     pool = (trending + TOPICS) if trending else TOPICS
+
+    if force_category:
+        filtered = [t for t in pool if analytics_module.categorize_topic(t) == force_category]
+        if filtered:
+            topic = random.choice(filtered)
+            log(f"Topic (forced {force_category}): {topic}")
+            return topic
+
+    # Use analytics weights when enough data exists
+    weights = get_db().get_topic_weights()
+    if weights:
+        cats = list(weights.keys())
+        wts = [weights[c] for c in cats]
+        chosen_cat = random.choices(cats, weights=wts, k=1)[0]
+        filtered = [t for t in pool if analytics_module.categorize_topic(t) == chosen_cat]
+        if filtered:
+            topic = random.choice(filtered)
+            log(f"Topic (analytics-weighted, cat={chosen_cat}): {topic}")
+            return topic
+
     topic = random.choice(pool)
     log(f"Topic: {topic}")
     return topic
@@ -724,6 +771,122 @@ def get_best_upload_windows():
     return windows
 
 
+# ─── Analytics: metrics fetching & self-improvement ──────────────────────────
+
+def fetch_video_metrics(video_id: str) -> dict:
+    """Fetch views/likes/comments from Data API v3, avg retention + CTR from Analytics API."""
+    access_token = get_yt_access_token()
+    metrics = {}
+
+    # Data API v3 — public stats (no Analytics scope needed)
+    if YOUTUBE_KEY:
+        try:
+            resp = requests.get(
+                "https://www.googleapis.com/youtube/v3/videos",
+                params={"part": "statistics", "id": video_id, "key": YOUTUBE_KEY},
+                timeout=20,
+            )
+            if resp.status_code == 200:
+                items = resp.json().get("items", [])
+                if items:
+                    stats = items[0].get("statistics", {})
+                    metrics["views"] = int(stats.get("viewCount", 0))
+                    metrics["likes"] = int(stats.get("likeCount", 0))
+                    metrics["comments"] = int(stats.get("commentCount", 0))
+        except Exception as exc:
+            log(f"Data API metrics error for {video_id}: {exc}")
+
+    # YouTube Analytics API — retention + CTR (requires yt-analytics.readonly scope)
+    if access_token:
+        try:
+            resp = requests.get(
+                "https://youtubeanalytics.googleapis.com/v2/reports",
+                params={
+                    "ids": "channel==MINE",
+                    "filters": f"video=={video_id}",
+                    "metrics": "averageViewPercentage,impressionClickThroughRate,estimatedMinutesWatched",
+                    "dimensions": "video",
+                    "startDate": "2020-01-01",
+                    "endDate": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                },
+                headers={"Authorization": f"Bearer {access_token}"},
+                timeout=20,
+            )
+            if resp.status_code == 200:
+                rows = resp.json().get("rows", [])
+                if rows:
+                    metrics["avg_view_percentage"] = float(rows[0][1]) if len(rows[0]) > 1 else None
+                    metrics["ctr"] = float(rows[0][2]) if len(rows[0]) > 2 else None
+            elif resp.status_code == 403:
+                log(f"Analytics API 403 for {video_id} — token may lack yt-analytics scope, skipping")
+        except Exception as exc:
+            log(f"Analytics API error for {video_id}: {exc}")
+
+    return metrics
+
+
+def fetch_analytics_updates():
+    """Check all videos that need 24h or 72h metrics and update the DB."""
+    log("Fetching analytics updates...")
+    db = get_db()
+    updated = 0
+    for checkpoint in [24, 72]:
+        for v in db.get_videos_needing_metrics(checkpoint):
+            vid_id = v.get("video_id")
+            metrics = fetch_video_metrics(vid_id)
+            if metrics.get("views") is not None:
+                db.update_video_metrics(vid_id, metrics, f"{checkpoint}h")
+                log(f"Updated {checkpoint}h metrics for {vid_id}: {metrics.get('views')} views")
+                updated += 1
+    if updated == 0:
+        log("No videos needed metric updates")
+
+
+def check_viral_alerts():
+    """
+    Viral threshold: 1000 views in 24h → trigger 5 more runs on same topic.
+    Engagement drop → vary content style (logged only; next run_original_pipeline picks up trend).
+    """
+    db = get_db()
+    for v in db.get_videos_needing_alert_check():
+        vid_id = v.get("video_id")
+        views_24h = v.get("views_24h", 0) or 0
+
+        if views_24h >= 1000:
+            topic_cat = v.get("topic_category", "money_general")
+            log(f"VIRAL ALERT: {vid_id} hit {views_24h} views in 24h! Triggering 5 bonus runs on {topic_cat}")
+            db.record_alert("viral_hit", vid_id, {"views_24h": views_24h, "topic_category": topic_cat})
+            for i in range(5):
+                log(f"Viral bonus run {i+1}/5...")
+                run_original_pipeline(force_topic_category=topic_cat)
+                time.sleep(10)
+
+        trend = db.get_engagement_trend()
+        if trend == "falling":
+            log(f"Engagement trend is FALLING — next runs will vary style")
+            db.record_alert("engagement_drop", vid_id, {"trend": trend})
+
+        db.mark_alert_checked(vid_id)
+
+
+def run_weekly_analysis():
+    """Generate weekly performance report and log key learnings."""
+    log("Running weekly analytics analysis...")
+    db = get_db()
+    report = db.generate_weekly_report()
+    if report.get("status") == "no_data":
+        log("Weekly report: no data yet")
+        return
+    log(
+        f"Weekly report — {report.get('total_videos')} videos, "
+        f"avg {report.get('avg_views_per_video')} views/video, "
+        f"trend: {report.get('engagement_trend')}, "
+        f"top topic: {report.get('top_topic')}, "
+        f"best style: {report.get('best_title_style')}, "
+        f"optimal length: {report.get('optimal_length_s')}s"
+    )
+
+
 # ─── Pipelines ────────────────────────────────────────────────────────────────
 
 def run_vugola_pipeline():
@@ -737,16 +900,22 @@ def run_vugola_pipeline():
         log(f"PIPELINE 1 ERROR: {exc}")
 
 
-def run_original_pipeline():
+def run_original_pipeline(force_topic_category=None):
     """
     True A/B test: two completely different videos (different topic, script,
     clips, and hook). Both GHA render jobs run in parallel; each video is
-    uploaded separately to YouTube.
+    uploaded separately to YouTube. Analytics-guided: length, title style,
+    and topic weights are sourced from PerformanceDB.
     """
     temp_dirs = []
+    db = get_db()
+    target_duration = db.get_optimal_script_length()
+    style_hint = db.get_best_title_style()
+    log(f"Analytics: target_duration={target_duration}s, style_hint={style_hint}")
+
     try:
         # ── Two different topics ───────────────────────────────────────────────
-        topic_a = choose_topic()
+        topic_a = choose_topic(force_category=force_topic_category)
         topic_b = choose_topic()
         for _ in range(5):
             if topic_b != topic_a:
@@ -755,14 +924,14 @@ def run_original_pipeline():
         log(f"PIPELINE 2 — A: '{topic_a}' | B: '{topic_b}'")
 
         # ── Scripts & metadata ────────────────────────────────────────────────
-        script_a = generate_script(topic_a)
-        script_b = generate_script(topic_b)
+        script_a = generate_script(topic_a, target_duration=target_duration)
+        script_b = generate_script(topic_b, target_duration=target_duration)
         if not script_a or not script_b:
             log("Script generation failed for one or both videos")
             return
 
-        title_a  = generate_title(topic_a)
-        title_b  = generate_title(topic_b)
+        title_a  = generate_title(topic_a, style_hint=style_hint)
+        title_b  = generate_title(topic_b, style_hint=style_hint)
         tags_a   = generate_hashtags(topic_a, title_a)
         tags_b   = generate_hashtags(topic_b, title_b)
         desc_a   = build_description(topic_a, tags_a)
@@ -824,12 +993,16 @@ def run_original_pipeline():
             if video_a:
                 temp_dirs.append(os.path.dirname(video_a))
                 vid_a_id = upload_video_file(video_a, title_a, desc_a, tags=tags_a)
+                if vid_a_id:
+                    db.record_upload(vid_a_id, title_a, topic_a, target_duration, ab_variant="A")
 
         if success_b and run_id_b:
             video_b = download_video_artifact(run_id_b)
             if video_b:
                 temp_dirs.append(os.path.dirname(video_b))
                 vid_b_id = upload_video_file(video_b, title_b, desc_b, tags=tags_b)
+                if vid_b_id:
+                    db.record_upload(vid_b_id, title_b, topic_b, target_duration, ab_variant="B")
 
         if vid_a_id or vid_b_id:
             record_ab_test(topic_a, title_a, title_b, vid_a_id, vid_b_id)
@@ -861,12 +1034,32 @@ def run_all():
 def start():
     try:
         log("WealthShock engine started")
-        for window in get_best_upload_windows():
-            try:
-                schedule.every().day.at(window["utc"]).do(run_all)
-                log(f"Scheduled: daily {window['utc']} UTC ({window['market']})")
-            except Exception as exc:
-                log(f"Scheduling error: {exc}")
+
+        # ── Upload schedule: use analytics-optimised slots if we have data ────
+        db = get_db()
+        optimal_slots = db.get_optimal_schedule()
+        if optimal_slots:
+            log(f"Using analytics-optimised upload schedule ({len(optimal_slots)} slots)")
+            for slot in optimal_slots:
+                try:
+                    schedule.every().day.at(slot["utc"]).do(run_all)
+                    log(f"Scheduled (analytics): {slot['day']} {slot['utc']} UTC (score={slot['score']:.0f})")
+                except Exception as exc:
+                    log(f"Scheduling error: {exc}")
+        else:
+            log("No analytics data yet — using market-peak schedule")
+            for window in get_best_upload_windows():
+                try:
+                    schedule.every().day.at(window["utc"]).do(run_all)
+                    log(f"Scheduled: daily {window['utc']} UTC ({window['market']})")
+                except Exception as exc:
+                    log(f"Scheduling error: {exc}")
+
+        # ── Recurring analytics jobs ──────────────────────────────────────────
+        schedule.every(6).hours.do(fetch_analytics_updates)
+        schedule.every(20).minutes.do(check_viral_alerts)
+        schedule.every().monday.at("04:00").do(run_weekly_analysis)
+        log("Analytics scheduler: metrics every 6h, viral check every 20min, weekly report Mondays 04:00 UTC")
 
         log("Running initial pipeline...")
         run_original_pipeline()
