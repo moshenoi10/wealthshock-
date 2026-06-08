@@ -30,13 +30,27 @@ jobs:
     name: Trigger Render deployment
     needs: test
     runs-on: ubuntu-latest
-    if: ${{ secrets.RENDER_API_KEY != '' && secrets.RENDER_SERVICE_ID != '' }}
     steps:
+      - name: Validate Render deployment secrets
+        run: |
+          if [ -z "${{ secrets.RENDER_API_KEY }}" ] || [ -z "${{ secrets.RENDER_SERVICE_ID }}" ]; then
+            echo "Render deploy secrets are missing. Skipping deploy step."
+            exit 0
+          fi
+
       - name: Trigger Render deploy
         run: |
-          curl -X POST \
+          response=$(curl -s -w "%{http_code}" -X POST \
             "https://api.render.com/v1/services/${{ secrets.RENDER_SERVICE_ID }}/deploys" \
             -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
             -H "Accept: application/json" \
             -H "Content-Type: application/json" \
-            -d '{"clearCache":false}'
+            -d '{"clearCache":false}')
+          http_code=${response: -3}
+          body=${response:: -3}
+          echo "Render deploy HTTP code: $http_code"
+          echo "$body"
+          if [ "$http_code" -ge 400 ]; then
+            echo "Render deploy failed"
+            exit 1
+          fi

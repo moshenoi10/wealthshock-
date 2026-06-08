@@ -659,7 +659,7 @@ def process_stock_clip(url, index, tmp, duration=3.8):
         return None
 
 
-def create_video_local(audio_path, stock_video_urls, title_text, script, duration=60):
+def render_finance_short_video(audio_path, stock_video_urls, title_text, script, duration=60):
     if not os.path.exists(audio_path):
         log("Audio path missing for video creation")
         return None
@@ -1280,7 +1280,7 @@ def run_original_pipeline():
             log("No stock videos found")
             return
 
-        video_path = create_video_local(audio_path, stock_videos, title_a, script, duration=60)
+        video_path = render_finance_short_video(audio_path, stock_videos, title_a, script, duration=60)
         if not video_path:
             log("Video creation failed")
             return
