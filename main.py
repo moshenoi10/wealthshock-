@@ -1,7 +1,7 @@
 """
 WealthShock - Render worker (lightweight, no ffmpeg)
 Responsibilities:
-  - Script/title/hashtag generation (Claude sonnet-4-5 → Gemini → local fallback)
+  - Script/title/hashtag generation (Gemini → local fallback)
   - gTTS voiceover (MP3, no ffmpeg needed)
   - Upload audio to free temp host (0x0.st / file.io / tmpfiles.org)
   - Trigger GitHub Actions video processing workflow
@@ -27,16 +27,9 @@ import schedule
 from dotenv import load_dotenv
 from gtts import gTTS
 
-try:
-    import anthropic as _anthropic_module
-    _ANTHROPIC_AVAILABLE = True
-except ImportError:
-    _ANTHROPIC_AVAILABLE = False
-
 load_dotenv()
 
 # ─── Environment variables ───────────────────────────────────────────────────
-ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY")
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 YOUTUBE_KEY = os.environ.get("YOUTUBE_API_KEY")
 YT_CLIENT_ID = os.environ.get("YOUTUBE_CLIENT_ID")
@@ -49,7 +42,6 @@ GH_REPO = os.environ.get("GH_REPO")  # "owner/repo"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 AB_TEST_FILE = os.path.join(BASE_DIR, "ab_tests.json")
 
-CLAUDE_MODEL = "claude-sonnet-4-5"
 GEMINI_MODEL = "gemini-2.5-flash-lite"
 
 TOPICS = [
@@ -210,25 +202,7 @@ def upload_video_file(video_path, title, description, tags=None):
     return None
 
 
-# ─── AI: Claude → Gemini → local fallback ────────────────────────────────────
-
-def _claude_generate(prompt):
-    if not ANTHROPIC_KEY or not _ANTHROPIC_AVAILABLE:
-        return None
-    for attempt in range(3):
-        try:
-            client = _anthropic_module.Anthropic(api_key=ANTHROPIC_KEY)
-            msg = client.messages.create(
-                model=CLAUDE_MODEL,
-                max_tokens=1024,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            return msg.content[0].text.strip()
-        except Exception as exc:
-            log(f"Claude attempt {attempt + 1} failed: {exc}")
-            time.sleep(5)
-    return None
-
+# ─── AI: Gemini → local fallback ─────────────────────────────────────────────
 
 def _gemini_generate(prompt):
     if not GEMINI_KEY:
@@ -258,7 +232,7 @@ def generate_script(topic):
         "- End with a powerful CTA: follow, save, or share\n"
         "Return ONLY the spoken script, no labels, with clear sentence breaks."
     )
-    result = _claude_generate(prompt) or _gemini_generate(prompt)
+    result = _gemini_generate(prompt)
     if result:
         return result
 
@@ -275,7 +249,7 @@ def generate_title(topic, variant=None):
     )
     if variant:
         prompt += f" Make it variant {variant} with a different angle or wording."
-    result = _claude_generate(prompt) or _gemini_generate(prompt)
+    result = _gemini_generate(prompt)
     if result:
         return result[:100]
     base = topic.title()
@@ -292,7 +266,7 @@ def generate_hashtags(topic, title):
         f"Generate 10 viral YouTube hashtags for: {topic} / {title}. "
         "Focus on finance, money, wealth, AI. Return only hashtags separated by spaces."
     )
-    result = _claude_generate(prompt) or _gemini_generate(prompt)
+    result = _gemini_generate(prompt)
     if result:
         tags = [sanitize_hashtag(t) for t in re.split(r"\s+", result) if t.startswith("#")]
         tags = [t for t in tags if t]
