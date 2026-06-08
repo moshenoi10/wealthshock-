@@ -139,20 +139,26 @@ def text_to_speech(text):
     return r.content
 
 def get_stock_videos(topic, count=5):
+    PIXABAY_KEY = os.environ.get("PIXABAY_API_KEY")
     r = requests.get(
-        "https://api.pexels.com/videos/search",
-        headers={"Authorization": PEXELS_KEY},
-        params={"query": topic, "per_page": count, "orientation": "portrait"}
+        "https://pixabay.com/api/videos/",
+        params={
+            "key": PIXABAY_KEY,
+            "q": topic,
+            "per_page": count,
+            "video_type": "film"
+        }
     )
-    videos = r.json().get("videos", [])
+    hits = r.json().get("hits", [])
     urls = []
-    for v in videos:
-        for f in v.get("video_files", []):
-            link = f.get("link", "")
-            if link.startswith("https://") and f.get("quality") in ["sd", "hd"]:
-                urls.append(link)
+    for h in hits:
+        videos = h.get("videos", {})
+        for quality in ["medium", "small", "large"]:
+            url = videos.get(quality, {}).get("url", "")
+            if url.startswith("https://"):
+                urls.append(url)
                 break
-    log(f"Pexels found {len(urls)} videos")
+    log(f"Pixabay found {len(urls)} videos for: {topic}")
     return urls[:count]
 
 def create_video_shotstack(audio_b64, stock_videos, duration=60):
