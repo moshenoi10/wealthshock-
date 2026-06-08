@@ -19,6 +19,9 @@ export const RemotionRoot: React.FC = () => {
           clipFiles: [],
           captions: [],
           durationInFrames: 1800,
+          hookText: 'SHOCKING MONEY FACTS',
+          sfxEvents: [],
+          statCharts: [],
         } as WealthShockProps
       }
       calculateMetadata={async ({ props }) => {

@@ -3,18 +3,42 @@ import {
   AbsoluteFill,
   OffthreadVideo,
   interpolate,
+  spring,
   useCurrentFrame,
   useVideoConfig,
 } from 'remotion';
 
-export const KenBurnsClip: React.FC<{ src: string }> = ({ src }) => {
+interface KenBurnsClipProps {
+  src: string;
+  punchIn?: boolean;
+}
+
+const FPS = 30;
+
+export const KenBurnsClip: React.FC<KenBurnsClipProps> = ({ src, punchIn = false }) => {
   const frame = useCurrentFrame();
   const { durationInFrames } = useVideoConfig();
 
-  const scale = interpolate(frame, [0, durationInFrames], [1.0, 1.08], {
+  // Ken Burns: slow zoom 1.0 → 1.08 over full clip
+  const kbScale = interpolate(frame, [0, durationInFrames], [1.0, 1.08], {
     extrapolateLeft: 'clamp',
     extrapolateRight: 'clamp',
   });
+
+  // Punch-in: spring from scale 1.14 → 1.0 in first 8 frames
+  const entryScale = punchIn
+    ? spring({
+        fps: FPS,
+        frame,
+        config: { damping: 400, stiffness: 500, mass: 0.8 },
+        from: 1.14,
+        to: 1.0,
+        durationInFrames: 8,
+      })
+    : 1.0;
+
+  // Final scale: when punching in, use whichever is larger
+  const finalScale = punchIn ? Math.max(kbScale, entryScale) : kbScale;
 
   return (
     <AbsoluteFill>
@@ -24,8 +48,9 @@ export const KenBurnsClip: React.FC<{ src: string }> = ({ src }) => {
           width: '100%',
           height: '100%',
           objectFit: 'cover',
-          transform: `scale(${scale})`,
+          transform: `scale(${finalScale})`,
           transformOrigin: 'center center',
+          filter: 'contrast(1.2) saturate(1.4) brightness(1.02)',
         }}
       />
       {/* Gradient overlay — improves caption legibility */}

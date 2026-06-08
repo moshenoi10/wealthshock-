@@ -22,3 +22,5 @@ services:
         sync: false
       - key: GH_REPO
         sync: false
+      - key: FREESOUND_API_KEY
+        sync: false
