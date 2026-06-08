@@ -145,7 +145,11 @@ Structure:
 Return ONLY the spoken script. No labels, no brackets."""
 
     r = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]})
-    return r.json()["candidates"][0]["content"]["parts"][0]["text"]
+    data = r.json()
+    if "candidates" not in data:
+        log(f"Gemini error: {data}")
+        return None
+    return data["candidates"][0]["content"]["parts"][0]["text"]
 
 def generate_title(topic):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_KEY}"
@@ -248,7 +252,10 @@ def run_original_pipeline():
     log(f"PIPELINE 2 (Original): {topic}")
 
     script = generate_script(topic)
-    title = generate_title(topic)
+    if not script:
+        log("Script failed — check GEMINI_API_KEY in Render")
+        return
+    title = generate_title(topic) or f"{topic.title()} #shorts"
     log(f"Title: {title}")
 
     audio = text_to_speech(script)
