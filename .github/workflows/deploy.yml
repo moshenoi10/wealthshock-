@@ -19,12 +19,16 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: pip
 
-      - name: Install dependencies
-        run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
+      - name: Install Render dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install GHA dependencies
+        run: pip install -r requirements_gha.txt
 
       - name: Compile Python sources
-        run: python -m py_compile main.py
+        run: python -m py_compile main.py video_processor.py auto_heal.py
 
   deploy:
     name: Trigger Render deployment

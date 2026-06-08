@@ -1,0 +1,69 @@
+name: Process Video
+
+# Triggered by Render via GitHub API after script + audio are ready.
+# Runs all ffmpeg work here (14 GB RAM) and saves the MP4 as an artifact.
+on:
+  workflow_dispatch:
+    inputs:
+      audio_url:
+        description: 'Direct download URL for the gTTS MP3 voiceover'
+        required: true
+        type: string
+      stock_video_urls:
+        description: 'JSON array of Pixabay finance/money video URLs'
+        required: true
+        type: string
+      title:
+        description: 'Video title for the animated title card'
+        required: true
+        type: string
+      script:
+        description: 'Script text used for word-synced burned-in captions'
+        required: true
+        type: string
+
+jobs:
+  render:
+    name: Render video with ffmpeg
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            ffmpeg \
+            fonts-dejavu-core \
+            libass9 \
+            libass-dev
+
+      - name: Install Python dependencies
+        run: pip install -r requirements_gha.txt
+
+      - name: Render video
+        env:
+          AUDIO_URL: ${{ inputs.audio_url }}
+          STOCK_VIDEO_URLS: ${{ inputs.stock_video_urls }}
+          TITLE: ${{ inputs.title }}
+          SCRIPT: ${{ inputs.script }}
+        run: python video_processor.py
+
+      - name: Upload finished MP4 as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-video
+          path: final_video.mp4
+          retention-days: 1
+          if-no-files-found: error

@@ -1,43 +1,56 @@
+"""
+WealthShock - Render worker (lightweight, no ffmpeg)
+Responsibilities:
+  - Script/title/hashtag generation (Claude sonnet-4-5 → Gemini → local fallback)
+  - gTTS voiceover (MP3, no ffmpeg needed)
+  - Upload audio to free temp host (0x0.st / file.io / tmpfiles.org)
+  - Trigger GitHub Actions video processing workflow
+  - Poll for completion and download finished MP4
+  - Upload to YouTube with A/B title testing
+  - Run daily scheduler
+"""
+
 import gc
 import json
 import os
 import random
 import re
 import shutil
-import subprocess
 import tempfile
 import time
-import xml.etree.ElementTree as ET
-from datetime import datetime, timedelta
-from io import BytesIO
-from textwrap import wrap
+import zipfile
+from datetime import datetime, timezone
 
-import imageio_ffmpeg
 import pytz
 import requests
 import schedule
 from dotenv import load_dotenv
 from gtts import gTTS
-from PIL import Image, ImageDraw, ImageFont
+
+try:
+    import anthropic as _anthropic_module
+    _ANTHROPIC_AVAILABLE = True
+except ImportError:
+    _ANTHROPIC_AVAILABLE = False
 
 load_dotenv()
-FFMPEG_BIN = imageio_ffmpeg.get_ffmpeg_exe()
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-AB_TEST_FILE = os.path.join(BASE_DIR, "ab_tests.json")
-THUMBNAIL_SIZE = (1080, 1920)
 
+# ─── Environment variables ───────────────────────────────────────────────────
+ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY")
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 YOUTUBE_KEY = os.environ.get("YOUTUBE_API_KEY")
 YT_CLIENT_ID = os.environ.get("YOUTUBE_CLIENT_ID")
 YT_CLIENT_SECRET = os.environ.get("YOUTUBE_CLIENT_SECRET")
 YT_REFRESH_TOKEN = os.environ.get("YOUTUBE_REFRESH_TOKEN")
 PIXABAY_KEY = os.environ.get("PIXABAY_API_KEY")
+GH_PAT = os.environ.get("GH_PAT")
+GH_REPO = os.environ.get("GH_REPO")  # "owner/repo"
 
-YOUTUBE_OAUTH_SCOPES = [
-    "https://www.googleapis.com/auth/youtube.upload",
-    "https://www.googleapis.com/auth/youtube.readonly",
-    "https://www.googleapis.com/auth/youtube.force-ssl",
-]
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+AB_TEST_FILE = os.path.join(BASE_DIR, "ab_tests.json")
+
+CLAUDE_MODEL = "claude-sonnet-4-5"
+GEMINI_MODEL = "gemini-2.5-flash-lite"
 
 TOPICS = [
     "shocking money facts most people don't know",
@@ -61,16 +74,8 @@ MARKET_PEAK_HOURS = {
     "CN": {"tz": "Asia/Shanghai", "hours": [12, 18, 20]},
 }
 
-WEEKDAY_MAP = {
-    "monday": "monday",
-    "tuesday": "tuesday",
-    "wednesday": "wednesday",
-    "thursday": "thursday",
-    "friday": "friday",
-    "saturday": "saturday",
-    "sunday": "sunday",
-}
 
+# ─── Utilities ────────────────────────────────────────────────────────────────
 
 def log(msg):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
@@ -95,1008 +100,70 @@ def save_json_file(path, data):
         log(f"Failed to write JSON {path}: {exc}")
 
 
-def get_yt_access_token():
-    if not YT_CLIENT_ID or not YT_CLIENT_SECRET or not YT_REFRESH_TOKEN:
-        log("Missing YouTube OAuth environment variables")
-        return None
-    resp = requests.post(
-        "https://oauth2.googleapis.com/token",
-        data={
-            "client_id": YT_CLIENT_ID,
-            "client_secret": YT_CLIENT_SECRET,
-            "refresh_token": YT_REFRESH_TOKEN,
-            "grant_type": "refresh_token",
-        },
-        timeout=20,
-    )
-    data = resp.json()
-    if resp.status_code != 200 or "access_token" not in data:
-        log(f"YouTube auth error: {data}")
-        return None
-    return data["access_token"]
-
-
-def get_youtube_oauth_url(redirect_uri, access_type="offline"):
-    if not YT_CLIENT_ID:
-        return None
-    scope = "+".join(YOUTUBE_OAUTH_SCOPES)
-    return (
-        "https://accounts.google.com/o/oauth2/v2/auth"
-        f"?client_id={YT_CLIENT_ID}"
-        f"&redirect_uri={redirect_uri}"
-        "&response_type=code"
-        f"&scope={scope}"
-        f"&access_type={access_type}"
-        "&prompt=consent"
-    )
-
-
-def get_channel_best_days():
-    # Removed: YouTube Analytics API returns 403 (insufficient scopes)
-    # Use market peak hours schedule instead
-    log("Analytics dependency removed; using market peak hours schedule")
-    return []
-
-
-def trending_topics(region="US", count=8):
-    if not YOUTUBE_KEY:
-        log("Missing YouTube API key for trending topics")
-        return []
-    try:
-        url = "https://www.googleapis.com/youtube/v3/videos"
-        resp = requests.get(
-            url,
-            params={
-                "part": "snippet",
-                "chart": "mostPopular",
-                "regionCode": region,
-                "maxResults": count * 3,  # Fetch more to filter
-                "key": YOUTUBE_KEY,
-            },
-            timeout=20,
-        )
-        if resp.status_code != 200:
-            log(f"YouTube trending status {resp.status_code}: {resp.text[:200]}")
-            return []
-        data = resp.json()
-        items = data.get("items", [])
-        
-        # Filter for finance/money/AI/business keywords
-        FINANCE_KEYWORDS = ["money", "finance", "invest", "trading", "stock", "crypto", "bitcoin", "wealth", "rich",
-                           "ai", "artificial intelligence", "business", "startup", "entrepreneur", "income",
-                           "saving", "debt", "loan", "bank", "market", "economic", "gdp", "growth"]
-        
-        topics = []
-        for item in items:
-            title = item.get("snippet", {}).get("title", "").lower()
-            if title and any(keyword in title for keyword in FINANCE_KEYWORDS):
-                original_title = item.get("snippet", {}).get("title", "").strip()
-                if original_title:
-                    topics.append(original_title)
-            if len(topics) >= count:
-                break
-        
-        if topics:
-            log(f"YouTube Trending discovered {len(topics)} finance topics")
-            return topics
-        else:
-            log("No finance topics in trending; using curated list")
-            return []
-    except Exception as exc:
-        log(f"Trend discovery failed: {exc}")
-        return []
-
-
-def find_viral_video(topic):
-    if not YOUTUBE_KEY:
-        log("Missing YouTube API key for viral video discovery")
-        return None
-    try:
-        url = "https://www.googleapis.com/youtube/v3/search"
-        resp = requests.get(
-            url,
-            params={
-                "part": "snippet",
-                "q": topic,
-                "type": "video",
-                "order": "viewCount",
-                "maxResults": 3,
-                "regionCode": "US",
-                "key": YOUTUBE_KEY,
-            },
-            timeout=20,
-        )
-        if resp.status_code != 200:
-            log(f"Viral video search error {resp.status_code}: {resp.text[:200]}")
-            return None
-        items = resp.json().get("items", [])
-        for item in items:
-            video_id = item.get("id", {}).get("videoId")
-            if video_id:
-                return f"https://www.youtube.com/watch?v={video_id}"
-    except Exception as exc:
-        log(f"Viral video discovery failed: {exc}")
-    return None
-
-
-def choose_topic():
-    trending = trending_topics()
-    if trending:
-        pool = trending + TOPICS
-        topic = random.choice(pool)
-        log(f"Selected trending topic: {topic}")
-        return topic
-    topic = random.choice(TOPICS)
-    log(f"Selected curated topic: {topic}")
-    return topic
-
-
 def request_with_retries(method, url, max_retries=3, delay=5, **kwargs):
-    attempt = 0
-    while attempt < max_retries:
+    for attempt in range(max_retries):
         try:
             resp = requests.request(method, url, **kwargs)
             if resp.status_code == 503:
-                attempt += 1
-                log(f"Received 503 from {url}, retrying {attempt}/{max_retries} after {delay}s")
+                log(f"503 from {url}, retry {attempt + 1}/{max_retries}")
                 time.sleep(delay)
                 continue
             return resp
         except requests.RequestException as exc:
-            attempt += 1
-            log(f"Request exception to {url}, retry {attempt}/{max_retries}: {exc}")
+            log(f"Request error to {url}, retry {attempt + 1}/{max_retries}: {exc}")
             time.sleep(delay)
     return None
 
 
-def generate_script(topic):
-    # Prefer Gemini when API key is provided, otherwise use a local template fallback
-    if GEMINI_KEY:
+def stream_download(url, dest_path, chunk_size=8192):
+    for attempt in range(3):
         try:
-            prompt = f"""Create a 60-second viral YouTube Shorts script about: {topic}
-- Start with an emotional hook that feels shocking or controversial
-- Include 3 brief eye-opening facts or secrets with believable numbers
-- Add a counterintuitive twist or belief that people disagree with
-- End with a powerful CTA: follow, save, or share
-Return ONLY the spoken script, with clear sentence breaks."""
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={GEMINI_KEY}"
-            r = request_with_retries("POST", url, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=30)
-            if r is not None:
-                data = r.json()
-                if "candidates" in data:
-                    return data["candidates"][0]["content"]["parts"][0]["text"].strip()
-                log(f"Gemini script error: {data}")
-            else:
-                log("Gemini script request failed after retries")
+            with requests.get(url, stream=True, timeout=60) as r:
+                r.raise_for_status()
+                with open(dest_path, "wb") as f:
+                    for chunk in r.iter_content(chunk_size=chunk_size):
+                        if chunk:
+                            f.write(chunk)
+            if os.path.getsize(dest_path) > 0:
+                return True
         except Exception as exc:
-            log(f"Gemini call failed: {exc}")
-
-    # Local fallback: craft a short scripted narrative with hooks/facts/CTA
-    def local_generate_script(topic_text):
-        hook = f"You won't believe this about {topic_text.split()[0]}!"
-        facts = []
-        for i in range(3):
-            val = random.randint(2, 95)
-            facts.append(f"Fact {i+1}: {val}% of people are surprised by this about {topic_text}.")
-        twist = f"But here's the twist: most advice gets this backwards — {topic_text} works differently."
-        cta = "If you want more, follow and save this video."
-        parts = [hook] + facts + [twist, cta]
-        return " ".join(parts)
-
-    return local_generate_script(topic)
-
-
-def generate_title(topic, variant=None):
-    # Try Gemini first
-    if GEMINI_KEY:
-        try:
-            prompt = f"Write a viral YouTube Shorts title under 60 characters about: {topic}. Use strong psychological triggers, controversy, or shocking value."
-            if variant:
-                prompt += f" Create an alternate title that is different from the first one. Mark it as variant {variant}."
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={GEMINI_KEY}"
-            r = request_with_retries("POST", url, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=30)
-            if r is not None:
-                data = r.json()
-                if "candidates" in data:
-                    return data["candidates"][0]["content"]["parts"][0]["text"].strip()
-                log(f"Gemini title error: {data}")
-            else:
-                log("Gemini title request failed after retries")
-        except Exception as exc:
-            log(f"Gemini title call failed: {exc}")
-
-    # Local fallback title
-    base = topic.title()
-    if variant:
-        return f"{base} — {variant}"
-    return f"{base} #shorts"
-
-
-def sanitize_hashtag(text):
-    cleaned = re.sub(r"[^A-Za-z0-9]", "", text)
-    if not cleaned:
-        return None
-    return f"#{cleaned.lower()}"
-
-
-def fallback_hashtags(topic, title):
-    words = re.findall(r"[A-Za-z0-9]+", f"{topic} {title}")
-    tags = {sanitize_hashtag(word) for word in words if len(word) > 2}
-    tags = [tag for tag in tags if tag]
-    core = ["#shorts", "#finance", "#money", "#wealth", "#viral"]
-    return core + tags[:8]
-
-
-def generate_hashtags(topic, title):
-    if GEMINI_KEY:
-        try:
-            prompt = f"Generate 10 viral YouTube hashtags for this Shorts topic and title: {topic} / {title}. Focus on finance, money, wealth, AI, viral growth, and viewer curiosity. Return only hashtags separated by spaces."
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={GEMINI_KEY}"
-            r = request_with_retries("POST", url, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=30)
-            if r is not None:
-                data = r.json()
-                if "candidates" in data:
-                    text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-                    tags = [sanitize_hashtag(tag) for tag in re.split(r"\s+", text) if tag.startswith("#")]
-                    if tags:
-                        return tags[:12]
-                log(f"Gemini hashtags error: {data}")
-            else:
-                log("Gemini hashtags request failed after retries")
-        except Exception as exc:
-            log(f"Gemini hashtags call failed: {exc}")
-
-    return fallback_hashtags(topic, title)
-
-
-def get_stock_videos(topic, count=4):
-    # Limit to 4 max so the edit stays lightweight and memory-friendly
-    count = min(count, 4)
-    search_terms = ["money", "cash", "wealth", "stock market", "bitcoin", "business"]
-    query = " ".join([topic] + search_terms) if topic else " ".join(search_terms)
-    try:
-        r = requests.get(
-            "https://pixabay.com/api/videos/",
-            params={
-                "key": PIXABAY_KEY,
-                "q": query,
-                "per_page": count * 4,
-                "video_type": "film",
-                "safesearch": "true",
-                "order": "popular",
-            },
-            timeout=20,
-        )
-        data = r.json()
-        hits = data.get("hits", [])
-        urls = []
-        for h in hits:
-            videos = h.get("videos", {})
-            for quality in ["small", "medium", "large"]:
-                url = videos.get(quality, {}).get("url")
-                if url and url.startswith("https://"):
-                    urls.append(url)
-                    break
-        if not urls:
-            log("Pixabay returned no finance video URLs, falling back to money query")
-            return get_stock_videos("money", count)
-        log(f"Pixabay found {len(urls)} finance clips, using {min(len(urls), count)}")
-        return urls[:count]
-    except Exception as exc:
-        log(f"Stock video fetch failed: {exc}")
-        return []
-
-
-def get_stock_image(topic):
-    query = topic if topic else "finance"
-    try:
-        r = requests.get(
-            "https://pixabay.com/api/",
-            params={"key": PIXABAY_KEY, "q": query, "image_type": "photo", "per_page": 10, "safesearch": "true"},
-            timeout=20,
-        )
-        data = r.json()
-        hits = data.get("hits", [])
-        for hit in hits:
-            for key in ["largeImageURL", "webformatURL", "previewURL"]:
-                source = hit.get(key)
-                if source and source.startswith("https://"):
-                    return source
-    except Exception as exc:
-        log(f"Stock image fetch failed: {exc}")
-    return None
-
-
-def format_ass_time(seconds):
-    hours = int(seconds // 3600)
-    minutes = int((seconds % 3600) // 60)
-    secs = seconds - hours * 3600 - minutes * 60
-    centiseconds = int((secs - int(secs)) * 100)
-    return f"{hours}:{minutes:02d}:{int(secs):02d}.{centiseconds:02d}"
-
-
-def escape_ass_path(path):
-    return path.replace("'", "\\'")
-
-
-def generate_video_ass_captions(script, duration, ass_path):
-    words = [w for w in re.findall(r"[^\s]+", script)]
-    if not words:
-        log("No caption words generated")
-        return None
-
-    interval = max(0.18, duration / len(words))
-    try:
-        with open(ass_path, "w", encoding="utf-8") as f:
-            f.write("[Script Info]\n")
-            f.write("ScriptType: v4.00+\n")
-            f.write("PlayResX: 1080\n")
-            f.write("PlayResY: 1920\n")
-            f.write("\n")
-            f.write("[V4+ Styles]\n")
-            f.write("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
-            f.write("Style: Default,Impact,72,&H00FFFFFF,&H00000000,&H00000000,&H00000000,1,0,0,0,100,100,0,0,1,4,0,8,0,0,120,1\n")
-            f.write("\n")
-            f.write("[Events]\n")
-            f.write("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
-            current = 0.0
-            for word in words:
-                end = min(duration, current + interval)
-                safe_word = word.replace("{", "\\{").replace("}", "\\}")
-                f.write(
-                    f"Dialogue: 0,{format_ass_time(current)},{format_ass_time(end)},Default,,0,0,0,,{safe_word}\n"
-                )
-                current = end
-                if current >= duration:
-                    break
-        log(f"Caption ASS generated: {ass_path}")
-        return ass_path
-    except Exception as exc:
-        log(f"Caption ASS generation failed: {exc}")
-        return None
-
-
-def get_media_duration(path):
-    try:
-        result = subprocess.run(
-            [
-                FFMPEG_BIN,
-                "-v",
-                "error",
-                "-show_entries",
-                "format=duration",
-                "-of",
-                "default=noprint_wrappers=1:nokey=1",
-                path,
-            ],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            log(f"Duration probe failed: {result.stderr.strip()}")
-            return None
-        return float(result.stdout.strip() or 0.0)
-    except Exception as exc:
-        log(f"Media duration failed: {exc}")
-        return None
-
-
-def download_background_music(dest_path):
-    fallback_url = "https://assets.mixkit.co/music/preview/mixkit-dark-cinematic-drums-570.mp3"
-    try:
-        if PIXABAY_KEY:
-            r = requests.get(
-                "https://pixabay.com/api/audio/",
-                params={"key": PIXABAY_KEY, "q": "lofi dramatic cinematic", "per_page": 10, "safesearch": "true"},
-                timeout=20,
-            )
-            data = r.json()
-            hits = data.get("hits", [])
-            for hit in hits:
-                candidate = hit.get("download_url") or hit.get("previews", {}).get("mp3")
-                if candidate and candidate.startswith("https://"):
-                    if stream_download(candidate, dest_path):
-                        log(f"Background music downloaded from Pixabay: {candidate}")
-                        return True
-        if stream_download(fallback_url, dest_path):
-            log(f"Background music downloaded from fallback URL")
-            return True
-    except Exception as exc:
-        log(f"Background music download failed: {exc}")
+            log(f"Download attempt {attempt + 1} failed for {url}: {exc}")
+            time.sleep(3)
     return False
 
 
-def mix_voice_with_music(voice_path, music_path, output_path):
-    if not os.path.exists(music_path):
-        return voice_path
-    try:
-        result = subprocess.run(
-            [
-                FFMPEG_BIN,
-                "-y",
-                "-i",
-                voice_path,
-                "-stream_loop",
-                "-1",
-                "-i",
-                music_path,
-                "-filter_complex",
-                "[1:a]volume=0.10[a1];[0:a][a1]amix=inputs=2:duration=first:dropout_transition=2",
-                "-c:a",
-                "pcm_s16le",
-                "-ar",
-                "44100",
-                output_path,
-            ],
-            capture_output=True,
-        )
-        if result.returncode != 0 or not os.path.exists(output_path):
-            log(f"Music mix failed: {result.stderr.decode()[-300:]}")
-            return voice_path
-        log(f"Voice and music mixed: {output_path}")
-        return output_path
-    except Exception as exc:
-        log(f"Music mixing failed: {exc}")
-        return voice_path
+# ─── YouTube ─────────────────────────────────────────────────────────────────
 
-
-def generate_title_card_video(title_text, tmp, duration=3.0):
-    try:
-        image_path = os.path.join(tmp, "title_card.png")
-        video_path = os.path.join(tmp, "title_card.mp4")
-        bg = make_gradient_background(THUMBNAIL_SIZE)
-        draw = ImageDraw.Draw(bg)
-        title_font = load_font(120)
-        lines = wrap(title_text.upper(), width=12)
-        y = 360
-        for line in lines[:4]:
-            bbox = draw.textbbox((0, 0), line, font=title_font)
-            text_width = bbox[2] - bbox[0]
-            x = max(40, (THUMBNAIL_SIZE[0] - text_width) // 2)
-            draw.text((x, y), line, font=title_font, fill="#FFD700", stroke_width=6, stroke_fill="#000000")
-            y += bbox[3] - bbox[1] + 24
-        bg.save(image_path)
-
-        frames = int(duration * 25)
-        zoom_expr = f"if(lte(on,1),1,1+0.05*on/{frames})"
-        filter_expr = (
-            f"scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,"
-            f"zoompan=z='{zoom_expr}':d={frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1080x1920,"
-            f"fps=25"
-        )
-        result = subprocess.run(
-            [
-                FFMPEG_BIN,
-                "-y",
-                "-framerate",
-                "25",
-                "-loop",
-                "1",
-                "-i",
-                image_path,
-                "-t",
-                str(duration),
-                "-vf",
-                filter_expr,
-                "-c:v",
-                "libx264",
-                "-pix_fmt",
-                "yuv420p",
-                "-an",
-                video_path,
-            ],
-            capture_output=True,
-        )
-        if result.returncode != 0 or not os.path.exists(video_path):
-            log(f"Title card video creation failed: {result.stderr.decode()[-300:]}")
-            return None
-        return video_path
-    except Exception as exc:
-        log(f"Title card creation failed: {exc}")
+def get_yt_access_token():
+    if not all([YT_CLIENT_ID, YT_CLIENT_SECRET, YT_REFRESH_TOKEN]):
+        log("Missing YouTube OAuth env vars")
         return None
-
-
-def process_stock_clip(url, index, tmp, duration=3.8):
-    input_path = os.path.join(tmp, f"clip_{index}.mp4")
-    output_path = os.path.join(tmp, f"clip_{index}_proc.mp4")
-    if not stream_download(url, input_path, chunk_size=8192):
-        log(f"Failed to download clip {url}")
-        return None
-    frames = int(duration * 25)
-    try:
-        zoom_expr = f"if(lte(on,1),1,1+0.05*on/{frames})"
-        filter_expr = (
-            f"scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,"
-            f"zoompan=z='{zoom_expr}':d={frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1080x1920,"
-            f"fps=25,fade=t=in:st=0:d=0.5,fade=t=out:st={duration - 0.5}:d=0.5"
-        )
-        result = subprocess.run(
-            [
-                FFMPEG_BIN,
-                "-y",
-                "-i",
-                input_path,
-                "-t",
-                str(duration),
-                "-filter_complex",
-                filter_expr,
-                "-c:v",
-                "libx264",
-                "-pix_fmt",
-                "yuv420p",
-                "-an",
-                output_path,
-            ],
-            capture_output=True,
-        )
-        if result.returncode != 0 or not os.path.exists(output_path):
-            log(f"Clip processing failed, retrying without zoom: {result.stderr.decode()[-300:]}")
-            result = subprocess.run(
-                [
-                    FFMPEG_BIN,
-                    "-y",
-                    "-i",
-                    input_path,
-                    "-t",
-                    str(duration),
-                    "-vf",
-                    "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,fps=25,fade=t=in:st=0:d=0.5,fade=t=out:st={:.2f}:d=0.5".format(duration - 0.5),
-                    "-c:v",
-                    "libx264",
-                    "-pix_fmt",
-                    "yuv420p",
-                    "-an",
-                    output_path,
-                ],
-                capture_output=True,
-            )
-        if result.returncode != 0 or not os.path.exists(output_path):
-            log(f"Clip processing ultimately failed: {result.stderr.decode()[-300:]}")
-            return None
-        return output_path
-    except Exception as exc:
-        log(f"Clip processing exception: {exc}")
-        return None
-
-
-def render_finance_short_video(audio_path, stock_video_urls, title_text, script, duration=60):
-    if not os.path.exists(audio_path):
-        log("Audio path missing for video creation")
-        return None
-    if not stock_video_urls:
-        log("No stock videos available for premium edit")
-        return None
-
-    tmp = tempfile.mkdtemp()
-    try:
-        music_path = os.path.join(tmp, "background_music.mp3")
-        if download_background_music(music_path):
-            mixed_path = os.path.join(tmp, "mixed_audio.wav")
-            audio_input_path = mix_voice_with_music(audio_path, music_path, mixed_path)
-        else:
-            log("Proceeding without background music")
-            audio_input_path = audio_path
-
-        audio_duration = get_media_duration(audio_input_path) or duration
-        target_duration = min(duration, audio_duration)
-        captions_path = os.path.join(tmp, "captions.ass")
-        if not generate_video_ass_captions(script, audio_duration, captions_path):
-            log("Caption generation failed")
-            return None
-
-        title_video = generate_title_card_video(title_text, tmp, duration=3.0)
-        if not title_video:
-            log("Title card generation failed")
-            return None
-
-        processed_clips = []
-        for index, url in enumerate(stock_video_urls):
-            clip_path = process_stock_clip(url, index, tmp, duration=3.8)
-            if clip_path:
-                processed_clips.append(clip_path)
-        if not processed_clips:
-            log("No processed stock clips available")
-            return None
-
-        clip_duration = 3.8
-        title_duration = 3.0
-        remaining = max(0.0, target_duration - title_duration)
-        segments_needed = max(1, int((remaining + clip_duration - 1e-9) // clip_duration))
-        concat_clips = [title_video]
-        for i in range(segments_needed):
-            concat_clips.append(processed_clips[i % len(processed_clips)])
-
-        concat_list = os.path.join(tmp, "concat.txt")
-        with open(concat_list, "w", encoding="utf-8") as f:
-            for clip_path in concat_clips:
-                f.write(f"file '{clip_path}'\n")
-
-        concat_path = os.path.join(tmp, "concat.mp4")
-        concat_result = subprocess.run(
-            [
-                FFMPEG_BIN,
-                "-y",
-                "-f",
-                "concat",
-                "-safe",
-                "0",
-                "-i",
-                concat_list,
-                "-c",
-                "copy",
-                concat_path,
-            ],
-            capture_output=True,
-        )
-        if concat_result.returncode != 0 or not os.path.exists(concat_path):
-            log(f"Concat failed, retrying re-encode: {concat_result.stderr.decode()[-300:]}")
-            concat_result = subprocess.run(
-                [
-                    FFMPEG_BIN,
-                    "-y",
-                    "-f",
-                    "concat",
-                    "-safe",
-                    "0",
-                    "-i",
-                    concat_list,
-                    "-c:v",
-                    "libx264",
-                    "-pix_fmt",
-                    "yuv420p",
-                    concat_path,
-                ],
-                capture_output=True,
-            )
-        if concat_result.returncode != 0 or not os.path.exists(concat_path):
-            log(f"Final concat failed: {concat_result.stderr.decode()[-300:]}")
-            return None
-
-        final_output = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
-        subtitles_filter = (
-            f"subtitles='{escape_ass_path(captions_path)}'"
-            ":force_style='FontName=Impact,FontSize=72,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=4,Alignment=8,MarginV=120'"
-        )
-        result = subprocess.run(
-            [
-                FFMPEG_BIN,
-                "-y",
-                "-i",
-                concat_path,
-                "-i",
-                audio_input_path,
-                "-vf",
-                subtitles_filter,
-                "-map",
-                "0:v:0",
-                "-map",
-                "1:a:0",
-                "-c:v",
-                "libx264",
-                "-pix_fmt",
-                "yuv420p",
-                "-c:a",
-                "aac",
-                "-b:a",
-                "192k",
-                "-ar",
-                "44100",
-                "-shortest",
-                final_output,
-            ],
-            capture_output=True,
-        )
-        if result.returncode != 0 or not os.path.exists(final_output):
-            log(f"Final video render failed: {result.stderr.decode()[-300:]}")
-            return None
-
-        log(f"Final video ready: {final_output} ({os.path.getsize(final_output) // 1024}KB)")
-        return final_output
-    finally:
+    for attempt in range(3):
         try:
-            if os.path.exists(tmp):
-                shutil.rmtree(tmp)
+            resp = requests.post(
+                "https://oauth2.googleapis.com/token",
+                data={
+                    "client_id": YT_CLIENT_ID,
+                    "client_secret": YT_CLIENT_SECRET,
+                    "refresh_token": YT_REFRESH_TOKEN,
+                    "grant_type": "refresh_token",
+                },
+                timeout=20,
+            )
+            data = resp.json()
+            if resp.status_code == 200 and "access_token" in data:
+                return data["access_token"]
+            log(f"YouTube auth attempt {attempt + 1} failed: {data}")
         except Exception as exc:
-            log(f"Failed to clean temp directory: {exc}")
+            log(f"YouTube auth error (attempt {attempt + 1}): {exc}")
+        time.sleep(5)
+    return None
 
 
-def load_font(size):
-    candidates = [
-        "/Library/Fonts/Impact.ttf",
-        "/Library/Fonts/Arial Bold.ttf",
-        "/Library/Fonts/Arial.ttf",
-        "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
-    ]
-    for path in candidates:
-        if os.path.exists(path):
-            try:
-                return ImageFont.truetype(path, size=size)
-            except Exception:
-                pass
-    return ImageFont.load_default()
-
-
-def make_gradient_background(size):
-    width, height = size
-    base = Image.new("RGB", size, "#111111")
-    top = Image.new("RGB", size, "#841515")
-    mask = Image.new("L", size)
-    mask_data = []
-    for y in range(height):
-        mask_data.extend([int(255 * (y / height))] * width)
-    mask.putdata(mask_data)
-    base.paste(top, (0, 0), mask)
-    return base
-
-
-def generate_thumbnail(topic, title, hashtags=None):
-    tmp = tempfile.mkdtemp()
-    try:
-        path = os.path.join(tmp, "thumbnail.png")
-        image_url = get_stock_image(topic)
-        if image_url:
-            image_path = os.path.join(tmp, "thumb_source.png")
-            if not stream_download(image_url, image_path, chunk_size=8192):
-                bg = make_gradient_background(THUMBNAIL_SIZE)
-            else:
-                try:
-                    bg = Image.open(image_path).convert("RGB")
-                    bg = bg.resize(THUMBNAIL_SIZE)
-                except Exception:
-                    bg = make_gradient_background(THUMBNAIL_SIZE)
-        else:
-            bg = make_gradient_background(THUMBNAIL_SIZE)
-
-        draw = ImageDraw.Draw(bg)
-        title_font = load_font(110)
-        hook_font = load_font(140)
-        tag_font = load_font(48)
-
-        overlay = Image.new("RGBA", THUMBNAIL_SIZE, (0, 0, 0, 140))
-        bg.paste(overlay, (0, 0), overlay)
-
-        hook_text = "SHOCKING"
-        title_lines = wrap(title.upper(), width=18)
-        hashtag_line = " ".join(hashtags[:5]) if hashtags else "#Shorts #Finance"
-
-        draw.text((60, 80), hook_text, font=hook_font, fill="#FFD700")
-        y = 260
-        for line in title_lines[:4]:
-            draw.text((60, y), line, font=title_font, fill="#FFFFFF")
-            bbox = draw.textbbox((60, y), line, font=title_font)
-            line_height = bbox[3] - bbox[1]
-            y += line_height + 12
-
-        draw.rectangle([50, THUMBNAIL_SIZE[1] - 220, THUMBNAIL_SIZE[0] - 50, THUMBNAIL_SIZE[1] - 100], outline="#FFD700", width=6)
-        draw.text((60, THUMBNAIL_SIZE[1] - 180), hashtag_line, font=tag_font, fill="#FFFFFF")
-        bg.save(path)
-        log(f"Thumbnail generated: {path}")
-        # Return path but will be cleaned up in finally
-        return path
-    finally:
-        # Note: we don't delete the temp directory immediately because the thumbnail file
-        # is still being used by upload functions. Clean up will happen after upload.
-        pass
-
-
-def call_gtts(text, output_path, speaking_rate=1.0, pitch=0.0):
-    try:
-        tts = gTTS(text=text, lang="en", slow=False)
-        with open(output_path, "wb") as f:
-            tts.write_to_fp(f)
-        return True
-    except Exception as exc:
-        log(f"gTTS error: {exc}")
-        return False
-
-
-def stream_download(url, dest_path, chunk_size=8192):
-    try:
-        with requests.get(url, stream=True, timeout=30) as r:
-            r.raise_for_status()
-            with open(dest_path, "wb") as f:
-                for chunk in r.iter_content(chunk_size=chunk_size):
-                    if chunk:
-                        f.write(chunk)
-        return True
-    except Exception as exc:
-        log(f"Download failed {url}: {exc}")
-        return False
-
-
-def convert_audio_segment(mp3_path, wav_path, tempo=1.0, volume=1.0):
-    args = [
-        FFMPEG_BIN,
-        "-y",
-        "-f",
-        "mp3",
-        "-i",
-        mp3_path,
-        "-vn",
-        "-acodec",
-        "pcm_s16le",
-        "-ar",
-        "44100",
-        "-ac",
-        "2",
-    ]
-    filters = []
-    if tempo and abs(tempo - 1.0) > 0.001:
-        filters.append(f"atempo={tempo:.2f}")
-    if volume and abs(volume - 1.0) > 0.001:
-        filters.append(f"volume={volume:.2f}")
-    if filters:
-        args.extend(["-af", ",".join(filters)])
-    args.append(wav_path)
-    result = subprocess.run(args, capture_output=True)
-    if result.returncode != 0:
-        log(f"Audio convert failed: {result.stderr.decode()[-300:]}")
-        return False
-    return True
-
-
-def split_script(script):
-    pieces = re.split(r"([.!?])", script)
-    segments = []
-    for i in range(0, len(pieces) - 1, 2):
-        sentence = (pieces[i] + pieces[i + 1]).strip()
-        if sentence:
-            segments.append(sentence)
-    if not segments and script.strip():
-        segments = [script.strip()]
-    return segments
-
-
-def text_to_speech_fallback(text):
-    tmp = tempfile.mkdtemp()
-    mp3_path = os.path.join(tmp, "fallback.mp3")
-    wav_path = os.path.join(tmp, "fallback.wav")
-    if not call_gtts(text, mp3_path, speaking_rate=1.0, pitch=-1.0):
-        try:
-            if os.path.exists(tmp):
-                shutil.rmtree(tmp)
-        except Exception:
-            pass
-        return None
-    if not convert_audio_segment(mp3_path, wav_path, tempo=1.0, volume=1.0):
-        try:
-            if os.path.exists(tmp):
-                shutil.rmtree(tmp)
-        except Exception:
-            pass
-        return None
-    try:
-        if os.path.exists(mp3_path):
-            os.remove(mp3_path)
-    except Exception:
-        pass
-    return wav_path
-
-
-def text_to_speech_dynamic(script):
-    tmp = tempfile.mkdtemp()
-    segments = split_script(script)
-    if not segments:
-        log("No script segments for TTS")
-        return None
-
-    wav_paths = []
-    for index, segment in enumerate(segments[:12]):
-        segment = segment.strip()
-        if not segment:
-            continue
-        mp3_path = os.path.join(tmp, f"segment_{index}.mp3")
-        wav_path = os.path.join(tmp, f"segment_{index}.wav")
-        if not call_gtts(segment, mp3_path, speaking_rate=1.0 + random.uniform(-0.08, 0.12), pitch=random.uniform(-2.0, 2.5)):
-            log("Dynamic TTS failed, falling back to full text")
-            return text_to_speech_fallback(script)
-
-        tempo = 1.0
-        volume = 1.0
-        if segment.endswith("!") or segment.endswith("?"):
-            tempo = random.uniform(1.02, 1.12)
-            volume = 1.1
-        elif len(segment) < 25:
-            tempo = random.uniform(1.03, 1.12)
-        elif len(segment) > 70:
-            tempo = random.uniform(0.94, 1.0)
-
-        if not convert_audio_segment(mp3_path, wav_path, tempo=tempo, volume=volume):
-            return text_to_speech_fallback(script)
-        wav_paths.append(wav_path)
-        try:
-            if os.path.exists(mp3_path):
-                os.remove(mp3_path)
-        except Exception:
-            pass
-
-    if not wav_paths:
-        return text_to_speech_fallback(script)
-
-    concat_list = os.path.join(tmp, "concat.txt")
-    with open(concat_list, "w", encoding="utf-8") as f:
-        for wav in wav_paths:
-            f.write(f"file '{wav}'\n")
-
-    final_wav = os.path.join(tmp, "voice_final.wav")
-    result = subprocess.run([
-        FFMPEG_BIN,
-        "-y",
-        "-f",
-        "concat",
-        "-safe",
-        "0",
-        "-i",
-        concat_list,
-        "-c",
-        "copy",
-        final_wav,
-    ], capture_output=True)
-    if result.returncode != 0 or not os.path.exists(final_wav):
-        log(f"Audio concat failed: {result.stderr.decode()[-300:]}")
-        return text_to_speech_fallback(script)
-    for wav in wav_paths:
-        try:
-            if os.path.exists(wav):
-                os.remove(wav)
-        except Exception:
-            pass
-    try:
-        if os.path.exists(concat_list):
-            os.remove(concat_list)
-    except Exception:
-        pass
-    return final_wav
-
-
-def normalize_video(vpath, output_path):
-    result = subprocess.run([
-        FFMPEG_BIN,
-        "-y",
-        "-i",
-        vpath,
-        "-vf",
-        "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black",
-        "-c:v",
-        "libx264",
-        "-pix_fmt",
-        "yuv420p",
-        "-preset",
-        "veryfast",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "128k",
-        output_path,
-    ], capture_output=True)
-    if result.returncode != 0:
-        log(f"Video normalize failed: {result.stderr.decode()[-300:]}")
-        return False
-    return True
-
-
-def upload_thumbnail(video_id, thumbnail_path, access_token):
-    if not video_id or not os.path.exists(thumbnail_path):
-        return False
-    with open(thumbnail_path, "rb") as f:
-        resp = requests.post(
-            "https://www.googleapis.com/upload/youtube/v3/thumbnails/set",
-            params={"videoId": video_id},
-            headers={"Authorization": f"Bearer {access_token}", "Content-Type": "image/png"},
-            data=f,
-            timeout=30,
-        )
-    if resp.status_code not in [200, 201]:
-        log(f"Thumbnail upload failed: {resp.status_code} {resp.text[:200]}")
-        return False
-    log(f"Thumbnail uploaded for {video_id}")
-    return True
-
-
-def upload_video_file(video_path, title, description, tags=None, thumbnail_path=None):
+def upload_video_file(video_path, title, description, tags=None):
     access_token = get_yt_access_token()
     if not access_token:
-        log("Unable to upload without YouTube access token")
+        log("Cannot upload: no YouTube access token")
         return None
 
     meta = {
@@ -1110,106 +177,131 @@ def upload_video_file(video_path, title, description, tags=None, thumbnail_path=
     }
 
     boundary = "----WebKitFormBoundaryWealthShock"
+
     def multipart_stream():
-        yield f"--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n".encode("utf-8")
-        yield json.dumps(meta).encode("utf-8")
-        yield f"\r\n--{boundary}\r\nContent-Type: video/mp4\r\n\r\n".encode("utf-8")
+        yield f"--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n".encode()
+        yield json.dumps(meta).encode()
+        yield f"\r\n--{boundary}\r\nContent-Type: video/mp4\r\n\r\n".encode()
         with open(video_path, "rb") as vf:
             while True:
                 chunk = vf.read(8192)
                 if not chunk:
                     break
                 yield chunk
-        yield f"\r\n--{boundary}--\r\n".encode("utf-8")
+        yield f"\r\n--{boundary}--\r\n".encode()
 
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": f"multipart/related; boundary={boundary}",
     }
     url = "https://www.googleapis.com/upload/youtube/v3/videos?part=snippet,status&uploadType=multipart"
-    resp = requests.post(url, headers=headers, data=multipart_stream(), timeout=120)
-    if resp.status_code not in [200, 201]:
-        log(f"YouTube upload failed: {resp.status_code} {resp.text[:300]}")
+
+    for attempt in range(3):
+        try:
+            resp = requests.post(url, headers=headers, data=multipart_stream(), timeout=300)
+            if resp.status_code in [200, 201]:
+                vid = resp.json().get("id")
+                log(f"Uploaded video: {vid}")
+                return vid
+            log(f"Upload attempt {attempt + 1} failed: {resp.status_code} {resp.text[:200]}")
+        except Exception as exc:
+            log(f"Upload attempt {attempt + 1} error: {exc}")
+        time.sleep(10)
+    return None
+
+
+# ─── AI: Claude → Gemini → local fallback ────────────────────────────────────
+
+def _claude_generate(prompt):
+    if not ANTHROPIC_KEY or not _ANTHROPIC_AVAILABLE:
         return None
+    for attempt in range(3):
+        try:
+            client = _anthropic_module.Anthropic(api_key=ANTHROPIC_KEY)
+            msg = client.messages.create(
+                model=CLAUDE_MODEL,
+                max_tokens=1024,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            return msg.content[0].text.strip()
+        except Exception as exc:
+            log(f"Claude attempt {attempt + 1} failed: {exc}")
+            time.sleep(5)
+    return None
 
-    data = resp.json()
-    video_id = data.get("id")
-    if not video_id:
-        log(f"Upload succeeded but no video ID returned: {data}")
+
+def _gemini_generate(prompt):
+    if not GEMINI_KEY:
         return None
-
-    if thumbnail_path:
-        upload_thumbnail(video_id, thumbnail_path, access_token)
-    return video_id
-
-
-def get_video_statistics(video_ids):
-    if not YOUTUBE_KEY or not video_ids:
-        return {}
-    url = "https://www.googleapis.com/youtube/v3/videos"
-    resp = requests.get(
-        url,
-        params={"part": "statistics,snippet", "id": ",".join(video_ids), "key": YOUTUBE_KEY},
-        timeout=20,
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_KEY}"
+    resp = request_with_retries(
+        "POST", url,
+        json={"contents": [{"parts": [{"text": prompt}]}]},
+        timeout=30,
     )
-    if resp.status_code != 200:
-        log(f"Video stats failed: {resp.status_code} {resp.text[:200]}")
-        return {}
+    if resp is None:
+        return None
     data = resp.json()
-    results = {}
-    for item in data.get("items", []):
-        vid = item.get("id")
-        results[vid] = {
-            "title": item.get("snippet", {}).get("title"),
-            "views": int(item.get("statistics", {}).get("viewCount", 0)),
-            "likes": int(item.get("statistics", {}).get("likeCount", 0)),
-            "comments": int(item.get("statistics", {}).get("commentCount", 0)),
-        }
-    return results
+    try:
+        return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+    except (KeyError, IndexError):
+        log(f"Gemini response error: {data}")
+        return None
 
 
-def load_ab_tests():
-    tests = load_json_file(AB_TEST_FILE, [])
-    if not isinstance(tests, list):
-        tests = []
-    return tests
+def generate_script(topic):
+    prompt = (
+        f"Create a 60-second viral YouTube Shorts script about: {topic}\n"
+        "- Start with an emotional hook that feels shocking or controversial\n"
+        "- Include 3 brief eye-opening facts or secrets with believable numbers\n"
+        "- Add a counterintuitive twist that most people disagree with\n"
+        "- End with a powerful CTA: follow, save, or share\n"
+        "Return ONLY the spoken script, no labels, with clear sentence breaks."
+    )
+    result = _claude_generate(prompt) or _gemini_generate(prompt)
+    if result:
+        return result
+
+    hook = f"You won't believe this about {topic.split()[0]}!"
+    facts = [f"Fact {i + 1}: {random.randint(2, 95)}% of people don't know this about {topic}." for i in range(3)]
+    twist = f"But here's the twist — most advice about {topic} is completely backwards."
+    return " ".join([hook] + facts + [twist, "Follow and save this video right now."])
 
 
-def save_ab_tests(tests):
-    save_json_file(AB_TEST_FILE, tests)
+def generate_title(topic, variant=None):
+    prompt = (
+        f"Write a viral YouTube Shorts title under 60 characters about: {topic}. "
+        "Use strong psychological triggers, controversy, or shocking value."
+    )
+    if variant:
+        prompt += f" Make it variant {variant} with a different angle or wording."
+    result = _claude_generate(prompt) or _gemini_generate(prompt)
+    if result:
+        return result[:100]
+    base = topic.title()
+    return f"{base} ({variant})" if variant else f"{base} #shorts"
 
 
-def record_ab_test(topic, title_a, title_b, video_a_id, video_b_id, thumbnail_path):
-    tests = load_ab_tests()
-    record = {
-        "topic": topic,
-        "title_a": title_a,
-        "title_b": title_b,
-        "video_a_id": video_a_id,
-        "video_b_id": video_b_id,
-        "thumbnail_path": thumbnail_path,
-        "created_at": datetime.utcnow().isoformat() + "Z",
-        "updated_at": None,
-        "stats": {},
-    }
-    tests.append(record)
-    save_ab_tests(tests)
-    log(f"A/B test recorded: {video_a_id} vs {video_b_id}")
-    return record
+def sanitize_hashtag(text):
+    cleaned = re.sub(r"[^A-Za-z0-9]", "", text)
+    return f"#{cleaned.lower()}" if cleaned else None
 
 
-def update_ab_test_results():
-    tests = load_ab_tests()
-    if not tests:
-        log("No A/B tests found")
-        return
-    for record in tests:
-        ids = [record.get("video_a_id"), record.get("video_b_id")]
-        stats = get_video_statistics([vid for vid in ids if vid])
-        record["stats"] = stats
-        record["updated_at"] = datetime.utcnow().isoformat() + "Z"
-    save_ab_tests(tests)
-    log(f"Updated {len(tests)} A/B test result records")
+def generate_hashtags(topic, title):
+    prompt = (
+        f"Generate 10 viral YouTube hashtags for: {topic} / {title}. "
+        "Focus on finance, money, wealth, AI. Return only hashtags separated by spaces."
+    )
+    result = _claude_generate(prompt) or _gemini_generate(prompt)
+    if result:
+        tags = [sanitize_hashtag(t) for t in re.split(r"\s+", result) if t.startswith("#")]
+        tags = [t for t in tags if t]
+        if tags:
+            return tags[:12]
+    words = re.findall(r"[A-Za-z0-9]+", f"{topic} {title}")
+    extras = {sanitize_hashtag(w) for w in words if len(w) > 2}
+    core = ["#shorts", "#finance", "#money", "#wealth", "#viral"]
+    return core + [t for t in extras if t][:8]
 
 
 def build_description(topic, hashtags):
@@ -1222,9 +314,337 @@ def build_description(topic, hashtags):
     )
 
 
+# ─── Topic selection ──────────────────────────────────────────────────────────
+
+def trending_topics(region="US", count=8):
+    if not YOUTUBE_KEY:
+        return []
+    try:
+        resp = requests.get(
+            "https://www.googleapis.com/youtube/v3/videos",
+            params={"part": "snippet", "chart": "mostPopular", "regionCode": region,
+                    "maxResults": count * 3, "key": YOUTUBE_KEY},
+            timeout=20,
+        )
+        if resp.status_code != 200:
+            return []
+        FINANCE_KEYWORDS = {"money", "finance", "invest", "trading", "stock", "crypto",
+                            "bitcoin", "wealth", "rich", "ai", "business", "income", "market"}
+        topics = []
+        for item in resp.json().get("items", []):
+            title = item.get("snippet", {}).get("title", "")
+            if any(kw in title.lower() for kw in FINANCE_KEYWORDS):
+                topics.append(title.strip())
+            if len(topics) >= count:
+                break
+        return topics
+    except Exception as exc:
+        log(f"Trending topics failed: {exc}")
+        return []
+
+
+def choose_topic():
+    trending = trending_topics()
+    pool = (trending + TOPICS) if trending else TOPICS
+    topic = random.choice(pool)
+    log(f"Topic: {topic}")
+    return topic
+
+
+def find_viral_video(topic):
+    if not YOUTUBE_KEY:
+        return None
+    try:
+        resp = requests.get(
+            "https://www.googleapis.com/youtube/v3/search",
+            params={"part": "snippet", "q": topic, "type": "video",
+                    "order": "viewCount", "maxResults": 3, "key": YOUTUBE_KEY},
+            timeout=20,
+        )
+        for item in resp.json().get("items", []):
+            vid = item.get("id", {}).get("videoId")
+            if vid:
+                return f"https://www.youtube.com/watch?v={vid}"
+    except Exception as exc:
+        log(f"Viral video search failed: {exc}")
+    return None
+
+
+# ─── Pixabay stock videos ─────────────────────────────────────────────────────
+
+def get_stock_videos(topic, count=4):
+    if not PIXABAY_KEY:
+        log("Missing Pixabay API key")
+        return []
+    count = min(count, 4)
+    query = f"{topic} money finance wealth business"
+    for attempt in range(3):
+        try:
+            resp = requests.get(
+                "https://pixabay.com/api/videos/",
+                params={"key": PIXABAY_KEY, "q": query, "per_page": count * 4,
+                        "video_type": "film", "safesearch": "true", "order": "popular"},
+                timeout=20,
+            )
+            urls = []
+            for h in resp.json().get("hits", []):
+                videos = h.get("videos", {})
+                for quality in ["small", "medium", "large"]:
+                    url = videos.get(quality, {}).get("url")
+                    if url and url.startswith("https://"):
+                        urls.append(url)
+                        break
+            if urls:
+                log(f"Pixabay: {len(urls)} clips found")
+                return urls[:count]
+        except Exception as exc:
+            log(f"Pixabay attempt {attempt + 1} failed: {exc}")
+            time.sleep(3)
+    log("Pixabay returned no videos")
+    return []
+
+
+# ─── TTS (MP3 only, no ffmpeg on Render) ─────────────────────────────────────
+
+def generate_voiceover(script):
+    tmp = tempfile.mkdtemp()
+    mp3_path = os.path.join(tmp, "voice.mp3")
+    for attempt in range(3):
+        try:
+            tts = gTTS(text=script, lang="en", slow=False)
+            tts.save(mp3_path)
+            if os.path.exists(mp3_path) and os.path.getsize(mp3_path) > 0:
+                log(f"gTTS voiceover: {os.path.getsize(mp3_path) // 1024}KB")
+                return mp3_path
+        except Exception as exc:
+            log(f"gTTS attempt {attempt + 1} failed: {exc}")
+            time.sleep(5)
+    shutil.rmtree(tmp, ignore_errors=True)
+    return None
+
+
+# ─── Free temp file hosting ───────────────────────────────────────────────────
+
+def upload_to_temp_host(file_path):
+    # 0x0.st — files persist 24h+ (size-dependent), no account needed
+    for attempt in range(3):
+        try:
+            with open(file_path, "rb") as f:
+                resp = requests.post("https://0x0.st", files={"file": f}, timeout=120)
+            if resp.status_code == 200:
+                url = resp.text.strip()
+                if url.startswith("http"):
+                    log(f"Audio at 0x0.st: {url}")
+                    return url
+        except Exception as exc:
+            log(f"0x0.st attempt {attempt + 1}: {exc}")
+            time.sleep(3)
+
+    # file.io — single-use download link
+    for attempt in range(3):
+        try:
+            with open(file_path, "rb") as f:
+                resp = requests.post("https://file.io", files={"file": f}, timeout=120)
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("success") and data.get("link"):
+                    log(f"Audio at file.io: {data['link']}")
+                    return data["link"]
+        except Exception as exc:
+            log(f"file.io attempt {attempt + 1}: {exc}")
+            time.sleep(3)
+
+    # tmpfiles.org — 60 min expiry (enough for GHA to finish)
+    for attempt in range(3):
+        try:
+            with open(file_path, "rb") as f:
+                resp = requests.post("https://tmpfiles.org/api/v1/upload", files={"file": f}, timeout=120)
+            if resp.status_code == 200:
+                url = resp.json().get("data", {}).get("url", "")
+                if url:
+                    # tmpfiles.org returns /xxxxxx/file.ext — prefix dl. for direct download
+                    dl_url = url.replace("tmpfiles.org/", "tmpfiles.org/dl/")
+                    log(f"Audio at tmpfiles.org: {dl_url}")
+                    return dl_url
+        except Exception as exc:
+            log(f"tmpfiles.org attempt {attempt + 1}: {exc}")
+            time.sleep(3)
+
+    log("All temp file hosts failed")
+    return None
+
+
+# ─── GitHub Actions integration ───────────────────────────────────────────────
+
+def _gh_headers():
+    return {
+        "Authorization": f"Bearer {GH_PAT}",
+        "Accept": "application/vnd.github.v3+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+
+def trigger_and_get_run_id(inputs):
+    if not GH_PAT or not GH_REPO:
+        log("Missing GH_PAT or GH_REPO — cannot trigger GitHub Actions")
+        return None
+
+    dispatch_url = f"https://api.github.com/repos/{GH_REPO}/actions/workflows/process_video.yml/dispatches"
+    before = datetime.now(timezone.utc)
+
+    for attempt in range(3):
+        try:
+            resp = requests.post(
+                dispatch_url,
+                json={"ref": "main", "inputs": inputs},
+                headers=_gh_headers(),
+                timeout=30,
+            )
+            if resp.status_code == 204:
+                log("GitHub Actions workflow dispatched")
+                break
+            log(f"Dispatch attempt {attempt + 1} failed: {resp.status_code} {resp.text[:200]}")
+        except Exception as exc:
+            log(f"Dispatch attempt {attempt + 1} error: {exc}")
+        time.sleep(5)
+    else:
+        return None
+
+    # Poll for the new run created after dispatch
+    runs_url = f"https://api.github.com/repos/{GH_REPO}/actions/workflows/process_video.yml/runs"
+    for _ in range(24):  # up to 2 minutes
+        time.sleep(5)
+        try:
+            resp = requests.get(runs_url, headers=_gh_headers(), params={"per_page": 10}, timeout=20)
+            if resp.status_code != 200:
+                continue
+            for run in resp.json().get("workflow_runs", []):
+                created_str = run.get("created_at", "")
+                try:
+                    run_time = datetime.fromisoformat(created_str.replace("Z", "+00:00"))
+                    if run_time >= before:
+                        log(f"GHA run ID: {run['id']}")
+                        return run["id"]
+                except Exception:
+                    pass
+        except Exception as exc:
+            log(f"Run polling error: {exc}")
+
+    log("Timed out finding GHA run ID")
+    return None
+
+
+def wait_for_github_run(run_id, timeout_seconds=420):
+    if not run_id:
+        return False
+    url = f"https://api.github.com/repos/{GH_REPO}/actions/runs/{run_id}"
+    start = time.time()
+    while time.time() - start < timeout_seconds:
+        try:
+            resp = requests.get(url, headers=_gh_headers(), timeout=20)
+            if resp.status_code == 200:
+                data = resp.json()
+                status = data.get("status")
+                conclusion = data.get("conclusion")
+                log(f"GHA run {run_id}: {status}/{conclusion}")
+                if status == "completed":
+                    return conclusion == "success"
+        except Exception as exc:
+            log(f"Run status check error: {exc}")
+        time.sleep(30)
+    log(f"GHA run {run_id} timed out after {timeout_seconds}s")
+    return False
+
+
+def download_video_artifact(run_id):
+    if not run_id:
+        return None
+    artifacts_url = f"https://api.github.com/repos/{GH_REPO}/actions/runs/{run_id}/artifacts"
+    tmp = None
+    try:
+        for attempt in range(3):
+            try:
+                resp = requests.get(artifacts_url, headers=_gh_headers(), timeout=20)
+                if resp.status_code == 200:
+                    break
+                time.sleep(5)
+            except Exception as exc:
+                log(f"Artifact list attempt {attempt + 1}: {exc}")
+        else:
+            log("Failed to list artifacts")
+            return None
+
+        artifacts = resp.json().get("artifacts", [])
+        if not artifacts:
+            log("No artifacts found for run")
+            return None
+
+        artifact_id = artifacts[0]["id"]
+        dl_url = f"https://api.github.com/repos/{GH_REPO}/actions/artifacts/{artifact_id}/zip"
+
+        tmp = tempfile.mkdtemp()
+        zip_path = os.path.join(tmp, "video.zip")
+
+        resp = requests.get(
+            dl_url, headers=_gh_headers(),
+            stream=True, timeout=300, allow_redirects=True,
+        )
+        if resp.status_code != 200:
+            log(f"Artifact download failed: {resp.status_code}")
+            return None
+
+        with open(zip_path, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=65536):
+                if chunk:
+                    f.write(chunk)
+
+        with zipfile.ZipFile(zip_path, "r") as z:
+            z.extractall(tmp)
+        os.remove(zip_path)
+
+        for name in os.listdir(tmp):
+            if name.endswith(".mp4"):
+                mp4 = os.path.join(tmp, name)
+                log(f"Artifact: {mp4} ({os.path.getsize(mp4) // 1024}KB)")
+                return mp4
+
+        log("No MP4 found in artifact ZIP")
+        return None
+    except Exception as exc:
+        log(f"Artifact download error: {exc}")
+        if tmp and os.path.exists(tmp):
+            shutil.rmtree(tmp, ignore_errors=True)
+        return None
+
+
+# ─── A/B Tests ────────────────────────────────────────────────────────────────
+
+def load_ab_tests():
+    tests = load_json_file(AB_TEST_FILE, [])
+    return tests if isinstance(tests, list) else []
+
+
+def save_ab_tests(tests):
+    save_json_file(AB_TEST_FILE, tests)
+
+
+def record_ab_test(topic, title_a, title_b, video_a_id, video_b_id):
+    tests = load_ab_tests()
+    tests.append({
+        "topic": topic,
+        "title_a": title_a,
+        "title_b": title_b,
+        "video_a_id": video_a_id,
+        "video_b_id": video_b_id,
+        "created_at": datetime.utcnow().isoformat() + "Z",
+    })
+    save_ab_tests(tests)
+    log(f"A/B test recorded: {video_a_id} vs {video_b_id}")
+
+
+# ─── Scheduling ───────────────────────────────────────────────────────────────
+
 def get_best_upload_windows():
-    # Use market peak hours schedule (analytics removed due to 403 errors)
-    log("Using market peak hours upload schedule")
     windows = []
     seen = set()
     for market, data in MARKET_PEAK_HOURS.items():
@@ -1232,99 +652,112 @@ def get_best_upload_windows():
             try:
                 tz = pytz.timezone(data["tz"])
                 local_time = datetime.now(tz).replace(hour=hour, minute=0, second=0, microsecond=0)
-                utc_time = local_time.astimezone(pytz.utc)
-                if utc_time.strftime("%H:%M") in seen:
-                    continue
-                seen.add(utc_time.strftime("%H:%M"))
-                windows.append({"weekday": None, "market": market, "utc": utc_time.strftime("%H:%M")})
+                utc_str = local_time.astimezone(pytz.utc).strftime("%H:%M")
+                if utc_str not in seen:
+                    seen.add(utc_str)
+                    windows.append({"market": market, "utc": utc_str})
             except Exception as exc:
-                log(f"Error adding upload window for {market}: {exc}")
+                log(f"Window error for {market}: {exc}")
     return windows
 
+
+# ─── Pipelines ────────────────────────────────────────────────────────────────
 
 def run_vugola_pipeline():
     try:
         topic = choose_topic()
         log(f"PIPELINE 1 (Viral finder): {topic}")
-        video_url = find_viral_video(topic)
-        if video_url:
-            log(f"Found viral video: {video_url} — upload manually to Vugola")
+        url = find_viral_video(topic)
+        if url:
+            log(f"Viral video found: {url}")
     except Exception as exc:
         log(f"PIPELINE 1 ERROR: {exc}")
 
 
 def run_original_pipeline():
+    temp_dirs = []
     try:
         topic = choose_topic()
         log(f"PIPELINE 2 (Original): {topic}")
+
         script = generate_script(topic)
         if not script:
             log("Script generation failed")
             return
 
-        title_a = generate_title(topic, variant="A")
-        title_b = generate_title(topic, variant="B")
+        title_a = generate_title(topic, "A")
+        title_b = generate_title(topic, "B")
         if title_a == title_b:
-            title_b = f"{title_a} (Alt)"
+            title_b = title_a + " (Alt)"
 
         hashtags = generate_hashtags(topic, title_a)
         description = build_description(topic, hashtags)
 
-        audio_path = text_to_speech_dynamic(script)
+        audio_path = generate_voiceover(script)
         if not audio_path:
-            log("Audio generation failed")
+            log("Voiceover generation failed")
+            return
+        temp_dirs.append(os.path.dirname(audio_path))
+
+        stock_urls = get_stock_videos(topic, count=4)
+        if not stock_urls:
+            log("No stock videos found — aborting pipeline")
             return
 
-        stock_videos = get_stock_videos(topic, count=4)
-        if not stock_videos:
-            log("No stock videos found")
+        audio_url = upload_to_temp_host(audio_path)
+        if not audio_url:
+            log("Audio upload to temp host failed — aborting pipeline")
             return
 
-        video_path = render_finance_short_video(audio_path, stock_videos, title_a, script, duration=60)
+        inputs = {
+            "audio_url": audio_url,
+            "stock_video_urls": json.dumps(stock_urls),
+            "title": title_a[:100],
+            "script": script[:4000],
+        }
+
+        run_id = trigger_and_get_run_id(inputs)
+        if not run_id:
+            log("Could not get GitHub Actions run ID — aborting pipeline")
+            return
+
+        success = wait_for_github_run(run_id, timeout_seconds=420)
+        if not success:
+            log("GitHub Actions video processing failed or timed out")
+            return
+
+        video_path = download_video_artifact(run_id)
         if not video_path:
-            log("Video creation failed")
+            log("Could not download video artifact")
             return
+        temp_dirs.append(os.path.dirname(video_path))
 
-        thumbnail_path = generate_thumbnail(topic, title_a, hashtags)
-        if not thumbnail_path:
-            log("Thumbnail creation failed")
-
-        video_a_id = upload_video_file(video_path, title_a, description, tags=hashtags, thumbnail_path=thumbnail_path)
-        video_b_id = upload_video_file(video_path, title_b, description, tags=hashtags, thumbnail_path=thumbnail_path)
+        video_a_id = upload_video_file(video_path, title_a, description, tags=hashtags)
+        video_b_id = upload_video_file(video_path, title_b, description, tags=hashtags)
 
         if video_a_id or video_b_id:
-            record_ab_test(topic, title_a, title_b, video_a_id, video_b_id, thumbnail_path)
-            update_ab_test_results()
-        
-        # Clean up temporary files after upload
-        temp_dirs = set()
-        for path in [audio_path, video_path, thumbnail_path]:
-            if path:
-                try:
-                    temp_dir = os.path.dirname(path)
-                    if temp_dir and os.path.exists(temp_dir):
-                        temp_dirs.add(temp_dir)
-                except Exception:
-                    pass
-        
-        for temp_dir in temp_dirs:
-            try:
-                if os.path.exists(temp_dir):
-                    shutil.rmtree(temp_dir)
-                    log(f"Cleaned up temp directory: {temp_dir}")
-            except Exception as exc:
-                log(f"Failed to clean temp directory {temp_dir}: {exc}")
+            record_ab_test(topic, title_a, title_b, video_a_id, video_b_id)
+            log(f"Pipeline complete: A={video_a_id}  B={video_b_id}")
+        else:
+            log("Both YouTube uploads failed")
+
     except Exception as exc:
         log(f"PIPELINE 2 ERROR: {exc}")
+    finally:
+        for d in temp_dirs:
+            try:
+                if d and os.path.exists(d):
+                    shutil.rmtree(d)
+            except Exception as exc:
+                log(f"Cleanup error: {exc}")
+        gc.collect()
 
 
 def run_all():
     try:
         run_vugola_pipeline()
         run_original_pipeline()
-        # Force garbage collection after pipelines to free memory
         gc.collect()
-        log("Memory cleanup completed")
     except Exception as exc:
         log(f"run_all() error: {exc}")
 
@@ -1332,24 +765,18 @@ def run_all():
 def start():
     try:
         log("WealthShock engine started")
-        upload_windows = get_best_upload_windows()
-        for window in upload_windows:
+        for window in get_best_upload_windows():
             try:
-                if window["weekday"] and window["weekday"] in WEEKDAY_MAP:
-                    schedule_method = getattr(schedule.every(), window["weekday"])
-                    schedule_method.at(window["utc"]).do(run_all)
-                    log(f"Scheduled: {window['weekday'].capitalize()} {window['utc']} UTC ({window['market']})")
-                else:
-                    schedule.every().day.at(window["utc"]).do(run_all)
-                    log(f"Scheduled: daily {window['utc']} UTC ({window['market']})")
+                schedule.every().day.at(window["utc"]).do(run_all)
+                log(f"Scheduled: daily {window['utc']} UTC ({window['market']})")
             except Exception as exc:
-                log(f"Error scheduling window {window}: {exc}")
+                log(f"Scheduling error: {exc}")
 
-        log("Running a test A/B pipeline now...")
+        log("Running initial pipeline...")
         run_original_pipeline()
         gc.collect()
-        log("Initial pipeline complete, memory freed")
-        
+        log("Initial pipeline complete")
+
         while True:
             try:
                 schedule.run_pending()

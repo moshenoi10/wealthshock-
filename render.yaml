@@ -6,6 +6,8 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: python main.py
     envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false
       - key: GEMINI_API_KEY
         sync: false
       - key: PIXABAY_API_KEY
@@ -17,4 +19,8 @@ services:
       - key: YOUTUBE_CLIENT_SECRET
         sync: false
       - key: YOUTUBE_REFRESH_TOKEN
+        sync: false
+      - key: GH_PAT
+        sync: false
+      - key: GH_REPO
         sync: false
