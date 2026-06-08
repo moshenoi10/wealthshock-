@@ -152,9 +152,16 @@ def create_video_local(audio_content, stock_video_urls, duration=60):
 
     output_path = os.path.join(tmp, "output.mp4")
     result = subprocess.run([
-        "ffmpeg", "-i", concat_path, "-i", audio_path,
+        "ffmpeg",
+        "-i", concat_path,
+        "-f", "mp3", "-i", audio_path,
         "-vf", "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920",
-        "-t", str(duration), "-c:v", "libx264", "-c:a", "aac", "-shortest", "-y", output_path
+        "-t", str(duration),
+        "-c:v", "libx264",
+        "-c:a", "aac",
+        "-map", "0:v:0",
+        "-map", "1:a:0",
+        "-shortest", "-y", output_path
     ], capture_output=True)
 
     if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
