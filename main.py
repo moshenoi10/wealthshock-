@@ -231,6 +231,24 @@ def choose_topic():
     return topic
 
 
+def request_with_retries(method, url, max_retries=3, delay=5, **kwargs):
+    attempt = 0
+    while attempt < max_retries:
+        try:
+            resp = requests.request(method, url, **kwargs)
+            if resp.status_code == 503:
+                attempt += 1
+                log(f"Received 503 from {url}, retrying {attempt}/{max_retries} after {delay}s")
+                time.sleep(delay)
+                continue
+            return resp
+        except requests.RequestException as exc:
+            attempt += 1
+            log(f"Request exception to {url}, retry {attempt}/{max_retries}: {exc}")
+            time.sleep(delay)
+    return None
+
+
 def generate_script(topic):
     # Prefer Gemini when API key is provided, otherwise use a local template fallback
     if GEMINI_KEY:
@@ -242,11 +260,14 @@ def generate_script(topic):
 - End with a powerful CTA: follow, save, or share
 Return ONLY the spoken script, with clear sentence breaks."""
             url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={GEMINI_KEY}"
-            r = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=30)
-            data = r.json()
-            if "candidates" in data:
-                return data["candidates"][0]["content"]["parts"][0]["text"].strip()
-            log(f"Gemini script error: {data}")
+            r = request_with_retries("POST", url, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=30)
+            if r is not None:
+                data = r.json()
+                if "candidates" in data:
+                    return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+                log(f"Gemini script error: {data}")
+            else:
+                log("Gemini script request failed after retries")
         except Exception as exc:
             log(f"Gemini call failed: {exc}")
 
@@ -273,11 +294,14 @@ def generate_title(topic, variant=None):
             if variant:
                 prompt += f" Create an alternate title that is different from the first one. Mark it as variant {variant}."
             url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={GEMINI_KEY}"
-            r = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=30)
-            data = r.json()
-            if "candidates" in data:
-                return data["candidates"][0]["content"]["parts"][0]["text"].strip()
-            log(f"Gemini title error: {data}")
+            r = request_with_retries("POST", url, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=30)
+            if r is not None:
+                data = r.json()
+                if "candidates" in data:
+                    return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+                log(f"Gemini title error: {data}")
+            else:
+                log("Gemini title request failed after retries")
         except Exception as exc:
             log(f"Gemini title call failed: {exc}")
 
@@ -308,14 +332,17 @@ def generate_hashtags(topic, title):
         try:
             prompt = f"Generate 10 viral YouTube hashtags for this Shorts topic and title: {topic} / {title}. Focus on finance, money, wealth, AI, viral growth, and viewer curiosity. Return only hashtags separated by spaces."
             url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={GEMINI_KEY}"
-            r = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=30)
-            data = r.json()
-            if "candidates" in data:
-                text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-                tags = [sanitize_hashtag(tag) for tag in re.split(r"\s+", text) if tag.startswith("#")]
-                if tags:
-                    return tags[:12]
-            log(f"Gemini hashtags error: {data}")
+            r = request_with_retries("POST", url, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=30)
+            if r is not None:
+                data = r.json()
+                if "candidates" in data:
+                    text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+                    tags = [sanitize_hashtag(tag) for tag in re.split(r"\s+", text) if tag.startswith("#")]
+                    if tags:
+                        return tags[:12]
+                log(f"Gemini hashtags error: {data}")
+            else:
+                log("Gemini hashtags request failed after retries")
         except Exception as exc:
             log(f"Gemini hashtags call failed: {exc}")
 
@@ -1046,60 +1073,6 @@ def normalize_video(vpath, output_path):
         log(f"Video normalize failed: {result.stderr.decode()[-300:]}")
         return False
     return True
-
-
-def create_video_local(audio_path, image_url, duration=60):
-    if not os.path.exists(audio_path):
-        log("Audio path missing for video creation")
-        return None
-
-    tmp = tempfile.mkdtemp()
-    try:
-        image_path = os.path.join(tmp, "background.png")
-        if not stream_download(image_url, image_path, chunk_size=8192):
-            log("Background image download failed")
-            return None
-
-        output_path = os.path.join(tmp, "output.mp4")
-        result = subprocess.run([
-            FFMPEG_BIN,
-            "-y",
-            "-loop",
-            "1",
-            "-t",
-            str(duration),
-            "-i",
-            image_path,
-            "-i",
-            audio_path,
-            "-c:v",
-            "libx264",
-            "-pix_fmt",
-            "yuv420p",
-            "-tune",
-            "stillimage",
-            "-r",
-            "25",
-            "-vf",
-            "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "192k",
-            "-ar",
-            "44100",
-            "-shortest",
-            output_path,
-        ], capture_output=True)
-        if result.returncode != 0 or not os.path.exists(output_path):
-            log(f"Image video render failed: {result.stderr.decode()[-300:]}")
-            return None
-
-        log(f"Video created: {os.path.getsize(output_path) // 1024}KB")
-        return output_path
-    except Exception as exc:
-        log(f"create_video_local error: {exc}")
-        return None
 
 
 def upload_thumbnail(video_id, thumbnail_path, access_token):
