@@ -168,7 +168,7 @@ def create_video_shotstack(audio_b64, stock_videos, duration=60):
     clips = [{"asset": {"type": "video", "src": url}, "start": i * seg, "length": seg, "fit": "cover"}
              for i, url in enumerate(stock_videos)]
     r = requests.post(
-        "https://api.shotstack.io/edit/stage/render",
+        "https://api.shotstack.io/edit/v1/render",
         headers={"x-api-key": SHOTSTACK_KEY, "Content-Type": "application/json"},
         json={
             "timeline": {
@@ -192,7 +192,7 @@ def create_video_shotstack(audio_b64, stock_videos, duration=60):
 def wait_for_shotstack(render_id, timeout=300):
     for _ in range(timeout // 10):
         r = requests.get(
-            f"https://api.shotstack.io/edit/stage/render/{render_id}",
+            f"https://api.shotstack.io/edit/v1/render/{render_id}",
             headers={"x-api-key": SHOTSTACK_KEY}
         )
         data = r.json().get("response", {})
