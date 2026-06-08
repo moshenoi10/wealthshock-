@@ -130,39 +130,10 @@ def get_youtube_oauth_url(redirect_uri, access_type="offline"):
 
 
 def get_channel_best_days():
-    access_token = get_yt_access_token()
-    if not access_token:
-        return []
-    end_date = datetime.utcnow().date() - timedelta(days=1)
-    start_date = end_date - timedelta(days=27)
-    url = "https://youtubeanalytics.googleapis.com/v2/reports"
-    params = {
-        "ids": "channel==MINE",
-        "startDate": start_date.isoformat(),
-        "endDate": end_date.isoformat(),
-        "metrics": "views",
-        "dimensions": "dayOfWeek",
-        "sort": "-views",
-        "maxResults": "7",
-    }
-    resp = requests.get(url, headers={"Authorization": f"Bearer {access_token}"}, params=params, timeout=20)
-    if resp.status_code != 200:
-        log(f"Analytics error: {resp.status_code} {resp.text[:200]}")
-        return []
-    data = resp.json()
-    rows = data.get("rows", [])
-    day_names = []
-    for row in rows:
-        value = row[0] if row else None
-        if isinstance(value, int) or (isinstance(value, str) and value.isdigit()):
-            day_index = int(value) - 1
-            if 0 <= day_index <= 6:
-                day_names.append(list(WEEKDAY_MAP.values())[day_index])
-        elif isinstance(value, str):
-            name = value.strip().lower()
-            if name in WEEKDAY_MAP:
-                day_names.append(WEEKDAY_MAP[name])
-    return day_names
+    # Removed: YouTube Analytics API returns 403 (insufficient scopes)
+    # Use market peak hours schedule instead
+    log("Analytics dependency removed; using market peak hours schedule")
+    return []
 
 
 def trending_topics(region="US", count=8):
@@ -177,7 +148,7 @@ def trending_topics(region="US", count=8):
                 "part": "snippet",
                 "chart": "mostPopular",
                 "regionCode": region,
-                "maxResults": count,
+                "maxResults": count * 3,  # Fetch more to filter
                 "key": YOUTUBE_KEY,
             },
             timeout=20,
@@ -187,15 +158,28 @@ def trending_topics(region="US", count=8):
             return []
         data = resp.json()
         items = data.get("items", [])
+        
+        # Filter for finance/money/AI/business keywords
+        FINANCE_KEYWORDS = ["money", "finance", "invest", "trading", "stock", "crypto", "bitcoin", "wealth", "rich",
+                           "ai", "artificial intelligence", "business", "startup", "entrepreneur", "income",
+                           "saving", "debt", "loan", "bank", "market", "economic", "gdp", "growth"]
+        
         topics = []
         for item in items:
-            title = item.get("snippet", {}).get("title")
-            if title:
-                topics.append(title.strip())
+            title = item.get("snippet", {}).get("title", "").lower()
+            if title and any(keyword in title for keyword in FINANCE_KEYWORDS):
+                original_title = item.get("snippet", {}).get("title", "").strip()
+                if original_title:
+                    topics.append(original_title)
             if len(topics) >= count:
                 break
-        log(f"YouTube Trending discovered {len(topics)} topics")
-        return topics
+        
+        if topics:
+            log(f"YouTube Trending discovered {len(topics)} finance topics")
+            return topics
+        else:
+            log("No finance topics in trending; using curated list")
+            return []
     except Exception as exc:
         log(f"Trend discovery failed: {exc}")
         return []
@@ -853,117 +837,119 @@ def build_description(topic, hashtags):
 
 
 def get_best_upload_windows():
-    best_days = get_channel_best_days()
-    windows = []
-    if best_days:
-        seen = set()
-        for weekday in best_days[:3]:
-            for market, data in MARKET_PEAK_HOURS.items():
-                for hour in data["hours"][:2]:
-                    tz = pytz.timezone(data["tz"])
-                    local_time = datetime.now(tz).replace(hour=hour, minute=0, second=0, microsecond=0)
-                    utc_time = local_time.astimezone(pytz.utc)
-                    key = (weekday, utc_time.strftime("%H:%M"))
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    windows.append({"weekday": weekday, "market": market, "utc": utc_time.strftime("%H:%M")})
-                    if len(windows) >= 6:
-                        break
-                if len(windows) >= 6:
-                    break
-            if len(windows) >= 6:
-                break
-        if windows:
-            log("Using analytics-backed upload windows")
-            return windows
-    log("Falling back to market peak upload schedule")
+    # Use market peak hours schedule (analytics removed due to 403 errors)
+    log("Using market peak hours upload schedule")
     windows = []
     seen = set()
     for market, data in MARKET_PEAK_HOURS.items():
         for hour in data["hours"][:3]:
-            tz = pytz.timezone(data["tz"])
-            local_time = datetime.now(tz).replace(hour=hour, minute=0, second=0, microsecond=0)
-            utc_time = local_time.astimezone(pytz.utc)
-            if utc_time.strftime("%H:%M") in seen:
-                continue
-            seen.add(utc_time.strftime("%H:%M"))
-            windows.append({"weekday": None, "market": market, "utc": utc_time.strftime("%H:%M")})
+            try:
+                tz = pytz.timezone(data["tz"])
+                local_time = datetime.now(tz).replace(hour=hour, minute=0, second=0, microsecond=0)
+                utc_time = local_time.astimezone(pytz.utc)
+                if utc_time.strftime("%H:%M") in seen:
+                    continue
+                seen.add(utc_time.strftime("%H:%M"))
+                windows.append({"weekday": None, "market": market, "utc": utc_time.strftime("%H:%M")})
+            except Exception as exc:
+                log(f"Error adding upload window for {market}: {exc}")
     return windows
 
 
 def run_vugola_pipeline():
-    topic = choose_topic()
-    log(f"PIPELINE 1 (Viral finder): {topic}")
-    video_url = find_viral_video(topic)
-    if video_url:
-        log(f"Found viral video: {video_url} — upload manually to Vugola")
+    try:
+        topic = choose_topic()
+        log(f"PIPELINE 1 (Viral finder): {topic}")
+        video_url = find_viral_video(topic)
+        if video_url:
+            log(f"Found viral video: {video_url} — upload manually to Vugola")
+    except Exception as exc:
+        log(f"PIPELINE 1 ERROR: {exc}")
 
 
 def run_original_pipeline():
-    topic = choose_topic()
-    log(f"PIPELINE 2 (Original): {topic}")
-    script = generate_script(topic)
-    if not script:
-        return
+    try:
+        topic = choose_topic()
+        log(f"PIPELINE 2 (Original): {topic}")
+        script = generate_script(topic)
+        if not script:
+            log("Script generation failed")
+            return
 
-    title_a = generate_title(topic, variant="A")
-    title_b = generate_title(topic, variant="B")
-    if title_a == title_b:
-        title_b = f"{title_a} (Alt)"
+        title_a = generate_title(topic, variant="A")
+        title_b = generate_title(topic, variant="B")
+        if title_a == title_b:
+            title_b = f"{title_a} (Alt)"
 
-    hashtags = generate_hashtags(topic, title_a)
-    description = build_description(topic, hashtags)
+        hashtags = generate_hashtags(topic, title_a)
+        description = build_description(topic, hashtags)
 
-    audio_path = text_to_speech_dynamic(script)
-    if not audio_path:
-        log("Audio generation failed")
-        return
+        audio_path = text_to_speech_dynamic(script)
+        if not audio_path:
+            log("Audio generation failed")
+            return
 
-    stock_videos = get_stock_videos(topic)
-    if not stock_videos:
-        log("No stock videos found")
-        return
+        stock_videos = get_stock_videos(topic)
+        if not stock_videos:
+            log("No stock videos found")
+            return
 
-    video_path = create_video_local(audio_path, stock_videos, duration=60)
-    if not video_path:
-        log("Video creation failed")
-        return
+        video_path = create_video_local(audio_path, stock_videos, duration=60)
+        if not video_path:
+            log("Video creation failed")
+            return
 
-    thumbnail_path = generate_thumbnail(topic, title_a, hashtags)
-    if not thumbnail_path:
-        log("Thumbnail creation failed")
+        thumbnail_path = generate_thumbnail(topic, title_a, hashtags)
+        if not thumbnail_path:
+            log("Thumbnail creation failed")
 
-    video_a_id = upload_video_file(video_path, title_a, description, tags=hashtags, thumbnail_path=thumbnail_path)
-    video_b_id = upload_video_file(video_path, title_b, description, tags=hashtags, thumbnail_path=thumbnail_path)
+        video_a_id = upload_video_file(video_path, title_a, description, tags=hashtags, thumbnail_path=thumbnail_path)
+        video_b_id = upload_video_file(video_path, title_b, description, tags=hashtags, thumbnail_path=thumbnail_path)
 
-    if video_a_id or video_b_id:
-        record_ab_test(topic, title_a, title_b, video_a_id, video_b_id, thumbnail_path)
-        update_ab_test_results()
+        if video_a_id or video_b_id:
+            record_ab_test(topic, title_a, title_b, video_a_id, video_b_id, thumbnail_path)
+            update_ab_test_results()
+    except Exception as exc:
+        log(f"PIPELINE 2 ERROR: {exc}")
 
 
 def run_all():
-    run_vugola_pipeline()
-    run_original_pipeline()
+    try:
+        run_vugola_pipeline()
+        run_original_pipeline()
+    except Exception as exc:
+        log(f"run_all() error: {exc}")
 
 
 def start():
-    log("WealthShock engine started")
-    upload_windows = get_best_upload_windows()
-    for window in upload_windows:
-        if window["weekday"] and window["weekday"] in WEEKDAY_MAP:
-            schedule_method = getattr(schedule.every(), window["weekday"])
-            schedule_method.at(window["utc"]).do(run_all)
-            log(f"Scheduled: {window['weekday'].capitalize()} {window['utc']} UTC ({window['market']})")
-        else:
-            schedule.every().day.at(window["utc"]).do(run_all)
-            log(f"Scheduled: daily {window['utc']} UTC ({window['market']})")
+    try:
+        log("WealthShock engine started")
+        upload_windows = get_best_upload_windows()
+        for window in upload_windows:
+            try:
+                if window["weekday"] and window["weekday"] in WEEKDAY_MAP:
+                    schedule_method = getattr(schedule.every(), window["weekday"])
+                    schedule_method.at(window["utc"]).do(run_all)
+                    log(f"Scheduled: {window['weekday'].capitalize()} {window['utc']} UTC ({window['market']})")
+                else:
+                    schedule.every().day.at(window["utc"]).do(run_all)
+                    log(f"Scheduled: daily {window['utc']} UTC ({window['market']})")
+            except Exception as exc:
+                log(f"Error scheduling window {window}: {exc}")
 
-    log("Running a test A/B pipeline now...")
-    run_original_pipeline()
-    while True:
-        schedule.run_pending()
-        time.sleep(30)
+        log("Running a test A/B pipeline now...")
+        run_original_pipeline()
+        
+        while True:
+            try:
+                schedule.run_pending()
+                time.sleep(30)
+            except Exception as exc:
+                log(f"Scheduler error: {exc}")
+                time.sleep(10)
+    except Exception as exc:
+        log(f"FATAL startup error: {exc}")
+        raise
 
 
 if __name__ == "__main__":
