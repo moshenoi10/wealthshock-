@@ -581,6 +581,44 @@ def wait_for_github_run(run_id, timeout_seconds=420):
     return False
 
 
+def wait_for_two_runs(run_id_a, run_id_b, timeout_seconds=660):
+    """Poll two GHA runs simultaneously. Returns (success_a, success_b)."""
+    start = time.time()
+    runs = {
+        "A": {"id": run_id_a, "done": run_id_a is None, "success": False},
+        "B": {"id": run_id_b, "done": run_id_b is None, "success": False},
+    }
+
+    while time.time() - start < timeout_seconds:
+        if all(r["done"] for r in runs.values()):
+            break
+        for label, r in runs.items():
+            if r["done"] or not r["id"]:
+                continue
+            try:
+                resp = requests.get(
+                    f"https://api.github.com/repos/{GH_REPO}/actions/runs/{r['id']}",
+                    headers=_gh_headers(), timeout=20,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    status = data.get("status")
+                    conclusion = data.get("conclusion")
+                    log(f"GHA run {label} ({r['id']}): {status}/{conclusion}")
+                    if status == "completed":
+                        r["done"] = True
+                        r["success"] = conclusion == "success"
+            except Exception as exc:
+                log(f"Run {label} status error: {exc}")
+        if not all(r["done"] for r in runs.values()):
+            time.sleep(30)
+
+    for label, r in runs.items():
+        if not r["done"]:
+            log(f"GHA run {label} ({r['id']}) timed out")
+    return runs["A"]["success"], runs["B"]["success"]
+
+
 def download_video_artifact(run_id):
     if not run_id:
         return None
@@ -700,69 +738,102 @@ def run_vugola_pipeline():
 
 
 def run_original_pipeline():
+    """
+    True A/B test: two completely different videos (different topic, script,
+    clips, and hook). Both GHA render jobs run in parallel; each video is
+    uploaded separately to YouTube.
+    """
     temp_dirs = []
     try:
-        topic = choose_topic()
-        log(f"PIPELINE 2 (Original): {topic}")
+        # ── Two different topics ───────────────────────────────────────────────
+        topic_a = choose_topic()
+        topic_b = choose_topic()
+        for _ in range(5):
+            if topic_b != topic_a:
+                break
+            topic_b = choose_topic()
+        log(f"PIPELINE 2 — A: '{topic_a}' | B: '{topic_b}'")
 
-        script = generate_script(topic)
-        if not script:
-            log("Script generation failed")
+        # ── Scripts & metadata ────────────────────────────────────────────────
+        script_a = generate_script(topic_a)
+        script_b = generate_script(topic_b)
+        if not script_a or not script_b:
+            log("Script generation failed for one or both videos")
             return
 
-        title_a = generate_title(topic, "A")
-        title_b = generate_title(topic, "B")
-        if title_a == title_b:
-            title_b = title_a + " (Alt)"
+        title_a  = generate_title(topic_a)
+        title_b  = generate_title(topic_b)
+        tags_a   = generate_hashtags(topic_a, title_a)
+        tags_b   = generate_hashtags(topic_b, title_b)
+        desc_a   = build_description(topic_a, tags_a)
+        desc_b   = build_description(topic_b, tags_b)
 
-        hashtags = generate_hashtags(topic, title_a)
-        description = build_description(topic, hashtags)
-
-        audio_path = generate_voiceover(script)
-        if not audio_path:
-            log("Voiceover generation failed")
+        # ── Voiceovers ─────────────────────────────────────────────────────────
+        audio_a = generate_voiceover(script_a)
+        audio_b = generate_voiceover(script_b)
+        if not audio_a or not audio_b:
+            log("Voiceover generation failed for one or both videos")
             return
-        temp_dirs.append(os.path.dirname(audio_path))
+        temp_dirs += [os.path.dirname(audio_a), os.path.dirname(audio_b)]
 
-        stock_urls = get_varied_stock_clips(script, count=15)
-        if not stock_urls:
-            log("No stock videos found — aborting pipeline")
+        # ── Different stock clips for each video ──────────────────────────────
+        clips_a = get_varied_stock_clips(script_a, count=15)
+        clips_b = get_varied_stock_clips(script_b, count=15)
+        if not clips_a:
+            log("No stock clips for video A — aborting")
+            return
+        if not clips_b:
+            log("No stock clips for video B — falling back to shuffled A clips")
+            clips_b = clips_a[:]
+            random.shuffle(clips_b)
+
+        # ── Upload audio to temp hosts ────────────────────────────────────────
+        audio_url_a = upload_to_temp_host(audio_a)
+        audio_url_b = upload_to_temp_host(audio_b)
+        if not audio_url_a or not audio_url_b:
+            log("Audio upload to temp host failed")
             return
 
-        audio_url = upload_to_temp_host(audio_path)
-        if not audio_url:
-            log("Audio upload to temp host failed — aborting pipeline")
-            return
-
-        inputs = {
-            "audio_url": audio_url,
-            "stock_video_urls": json.dumps(stock_urls),
+        # ── Trigger two GHA render jobs in parallel ───────────────────────────
+        run_id_a = trigger_and_get_run_id({
+            "audio_url": audio_url_a,
+            "stock_video_urls": json.dumps(clips_a),
             "title": title_a[:100],
-            "script": script[:4000],
-        }
+            "script": script_a[:4000],
+        })
+        time.sleep(4)  # small gap so run IDs are distinguishable by timestamp
+        run_id_b = trigger_and_get_run_id({
+            "audio_url": audio_url_b,
+            "stock_video_urls": json.dumps(clips_b),
+            "title": title_b[:100],
+            "script": script_b[:4000],
+        })
 
-        run_id = trigger_and_get_run_id(inputs)
-        if not run_id:
-            log("Could not get GitHub Actions run ID — aborting pipeline")
+        if not run_id_a and not run_id_b:
+            log("Both GHA triggers failed — aborting")
             return
 
-        success = wait_for_github_run(run_id, timeout_seconds=420)
-        if not success:
-            log("GitHub Actions video processing failed or timed out")
-            return
+        # ── Wait for both jobs simultaneously ─────────────────────────────────
+        success_a, success_b = wait_for_two_runs(run_id_a, run_id_b, timeout_seconds=660)
 
-        video_path = download_video_artifact(run_id)
-        if not video_path:
-            log("Could not download video artifact")
-            return
-        temp_dirs.append(os.path.dirname(video_path))
+        # ── Download & upload each video ──────────────────────────────────────
+        vid_a_id = vid_b_id = None
 
-        video_a_id = upload_video_file(video_path, title_a, description, tags=hashtags)
-        video_b_id = upload_video_file(video_path, title_b, description, tags=hashtags)
+        if success_a and run_id_a:
+            video_a = download_video_artifact(run_id_a)
+            if video_a:
+                temp_dirs.append(os.path.dirname(video_a))
+                vid_a_id = upload_video_file(video_a, title_a, desc_a, tags=tags_a)
 
-        if video_a_id or video_b_id:
-            record_ab_test(topic, title_a, title_b, video_a_id, video_b_id)
-            log(f"Pipeline complete: A={video_a_id}  B={video_b_id}")
+        if success_b and run_id_b:
+            video_b = download_video_artifact(run_id_b)
+            if video_b:
+                temp_dirs.append(os.path.dirname(video_b))
+                vid_b_id = upload_video_file(video_b, title_b, desc_b, tags=tags_b)
+
+        if vid_a_id or vid_b_id:
+            record_ab_test(topic_a, title_a, title_b, vid_a_id, vid_b_id)
+            log(f"Pipeline complete — A={vid_a_id}  B={vid_b_id}")
         else:
             log("Both YouTube uploads failed")
 

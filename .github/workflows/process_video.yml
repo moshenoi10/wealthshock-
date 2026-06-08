@@ -1,7 +1,8 @@
 name: Process Video
 
-# Triggered by Render via GitHub API after script + audio are ready.
-# Runs all ffmpeg work here (14 GB RAM) and saves the MP4 as an artifact.
+# Triggered by Render after script + audio are ready.
+# Remotion (React/TypeScript) handles all video effects.
+# ffmpeg is still required for ffprobe (audio duration detection).
 on:
   workflow_dispatch:
     inputs:
@@ -14,19 +15,19 @@ on:
         required: true
         type: string
       title:
-        description: 'Hook title text for the animated opening card'
+        description: 'Video title'
         required: true
         type: string
       script:
-        description: 'Script text used for word-synced burned-in captions'
+        description: 'Script text for word-synced captions'
         required: true
         type: string
 
 jobs:
   render:
-    name: Render professional Shorts video
+    name: Render Shorts with Remotion
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
       - name: Checkout repository
@@ -34,27 +35,59 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: pip
-
-      - name: Install system dependencies + fonts
+      # ── System deps ──────────────────────────────────────────────────────────
+      - name: Install system dependencies
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
             ffmpeg \
             fonts-dejavu-core \
             fonts-liberation \
-            libass9
+            fonts-noto-color-emoji \
+            libgbm-dev \
+            libnss3 \
+            libnspr4 \
+            libatk1.0-0 \
+            libatk-bridge2.0-0 \
+            libcups2 \
+            libdrm2 \
+            libxkbcommon0 \
+            libxcomposite1 \
+            libxdamage1 \
+            libxfixes3 \
+            libxrandr2 \
+            libpango-1.0-0 \
+            libcairo2 \
+            libxss1 \
+            libxtst6
+          # libasound2 was renamed in Ubuntu 24.04
+          sudo apt-get install -y libasound2 2>/dev/null \
+            || sudo apt-get install -y libasound2t64 2>/dev/null \
+            || true
 
-          # Bebas Neue — the standard font for viral Shorts captions
-          sudo curl -fsSL \
-            "https://github.com/dharmatype/Bebas-Neue/raw/master/Fonts/BN/TTF/BebasNeue-Regular.ttf" \
-            -o /usr/share/fonts/truetype/BebasNeue-Regular.ttf \
-            && sudo fc-cache -f \
-            || echo "Bebas Neue download failed — DejaVu Sans Bold will be used"
+      # ── Node.js + Remotion ───────────────────────────────────────────────────
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Cache Remotion node_modules
+        uses: actions/cache@v4
+        with:
+          path: remotion/node_modules
+          key: remotion-${{ hashFiles('remotion/package.json') }}
+          restore-keys: remotion-
+
+      - name: Install Remotion dependencies
+        working-directory: remotion
+        run: npm install
+
+      # ── Python + video_processor ─────────────────────────────────────────────
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
 
       - name: Install Python dependencies
         run: pip install -r requirements_gha.txt
@@ -67,6 +100,7 @@ jobs:
           SCRIPT: ${{ inputs.script }}
         run: python video_processor.py
 
+      # ── Artifact ─────────────────────────────────────────────────────────────
       - name: Upload finished MP4 as artifact
         uses: actions/upload-artifact@v4
         with:
