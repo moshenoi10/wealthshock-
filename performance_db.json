@@ -153,6 +153,28 @@
       "avg_view_percentage": null,
       "ctr": null,
       "alert_checked": false
+    },
+    {
+      "video_id": "1fR0C1SycXU",
+      "title": "Here are a few options, playing on different triggers:\n\n**Controversy/Shock:**\n\n* **Gears E-Day: Thi",
+      "topic": "Gears of War: E-Day - Official Gameplay Trailer | Xbox Games  Showcase 2026",
+      "topic_category": "ai_finance",
+      "upload_time": "2026-06-09T03:09:41.620426+00:00",
+      "day_of_week": "Tuesday",
+      "upload_hour_utc": 3,
+      "timing_key": "Tuesday_3",
+      "estimated_duration": 60,
+      "duration_bucket": "45-60",
+      "title_style": "statement",
+      "ab_variant": "B",
+      "metrics_24h_fetched": false,
+      "metrics_72h_fetched": false,
+      "views_24h": null,
+      "views_72h": null,
+      "likes_24h": null,
+      "avg_view_percentage": null,
+      "ctr": null,
+      "alert_checked": false
     }
   ],
   "topic_performance": {},
