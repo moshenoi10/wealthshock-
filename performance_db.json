@@ -439,6 +439,28 @@
       "avg_view_percentage": null,
       "ctr": null,
       "alert_checked": false
+    },
+    {
+      "video_id": "wPUlta-2psU",
+      "title": "Here are a few options under 60 characters, playing on different triggers:\n\n**Shocking/Controversial",
+      "topic": "The Bear | Season 5 Official Trailer | Jeremy Allen White, Ayo Edebiri, Ebon Moss-Bachrach | FX",
+      "topic_category": "ai_finance",
+      "upload_time": "2026-06-09T16:10:11.423005+00:00",
+      "day_of_week": "Tuesday",
+      "upload_hour_utc": 16,
+      "timing_key": "Tuesday_16",
+      "estimated_duration": 60,
+      "duration_bucket": "45-60",
+      "title_style": "shocking_statement",
+      "ab_variant": "B",
+      "metrics_24h_fetched": false,
+      "metrics_72h_fetched": false,
+      "views_24h": null,
+      "views_72h": null,
+      "likes_24h": null,
+      "avg_view_percentage": null,
+      "ctr": null,
+      "alert_checked": false
     }
   ],
   "topic_performance": {},
