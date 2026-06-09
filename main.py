@@ -28,6 +28,7 @@ from dotenv import load_dotenv
 from gtts import gTTS
 
 import analytics as analytics_module
+import cute_pipeline
 
 load_dotenv()
 
@@ -1061,10 +1062,18 @@ def start():
         schedule.every().monday.at("04:00").do(run_weekly_analysis)
         log("Analytics scheduler: metrics every 6h, viral check every 20min, weekly report Mondays 04:00 UTC")
 
-        log("Running initial pipeline...")
+        # ── Cute video schedule: 3× per day (offset from wealth videos) ───────
+        schedule.every().day.at("07:00").do(cute_pipeline.run_cute_pipeline)
+        schedule.every().day.at("13:30").do(cute_pipeline.run_cute_pipeline)
+        schedule.every().day.at("21:00").do(cute_pipeline.run_cute_pipeline)
+        log("Cute video scheduler: 07:00, 13:30, 21:00 UTC daily")
+
+        log("Running initial pipelines (wealth + 2 cute demos)...")
         run_original_pipeline()
         gc.collect()
-        log("Initial pipeline complete")
+        cute_pipeline.run_cute_demo()
+        gc.collect()
+        log("Initial pipelines complete")
 
         while True:
             try:

@@ -24,3 +24,7 @@ services:
         sync: false
       - key: FREESOUND_API_KEY
         sync: false
+      - key: KLING_ACCESS_KEY
+        sync: false
+      - key: KLING_SECRET_KEY
+        sync: false

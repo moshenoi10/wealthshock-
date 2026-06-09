@@ -1,0 +1,65 @@
+name: Process Cute Video
+
+# Lightweight ffmpeg-only pipeline — no Remotion, no Node.js, no captions.
+# Triggered by Render worker after Kling/Pixabay video URLs are ready.
+on:
+  workflow_dispatch:
+    inputs:
+      clip_urls:
+        description: 'JSON array of video clip URLs (Kling CDN or Pixabay)'
+        required: true
+        type: string
+      music_url:
+        description: 'Direct MP3 URL for background music'
+        required: true
+        type: string
+      title:
+        description: 'YouTube video title'
+        required: true
+        type: string
+      target_duration:
+        description: 'Target output duration in seconds (20-40)'
+        required: false
+        default: '30'
+        type: string
+
+jobs:
+  render:
+    name: Mix Cute Video (ffmpeg)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements_gha.txt
+
+      - name: Mix video + music
+        env:
+          CLIP_URLS: ${{ inputs.clip_urls }}
+          MUSIC_URL: ${{ inputs.music_url }}
+          TARGET_DURATION: ${{ inputs.target_duration }}
+        run: python cute_processor.py
+
+      - name: Upload finished MP4 as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-cute-video
+          path: final_cute_video.mp4
+          retention-days: 1
+          if-no-files-found: error
