@@ -87,6 +87,28 @@
       "avg_view_percentage": null,
       "ctr": null,
       "alert_checked": false
+    },
+    {
+      "video_id": "QKejfTtDd7A",
+      "title": "Here are a few viral YouTube Shorts titles under 60 characters, focusing on psychological triggers a",
+      "topic": "investing habits of billionaires revealed",
+      "topic_category": "investing",
+      "upload_time": "2026-06-09T00:09:06.205042+00:00",
+      "day_of_week": "Tuesday",
+      "upload_hour_utc": 0,
+      "timing_key": "Tuesday_0",
+      "estimated_duration": 60,
+      "duration_bucket": "45-60",
+      "title_style": "statement",
+      "ab_variant": "A",
+      "metrics_24h_fetched": false,
+      "metrics_72h_fetched": false,
+      "views_24h": null,
+      "views_72h": null,
+      "likes_24h": null,
+      "avg_view_percentage": null,
+      "ctr": null,
+      "alert_checked": false
     }
   ],
   "topic_performance": {},
