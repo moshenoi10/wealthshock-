@@ -329,6 +329,28 @@
       "avg_view_percentage": null,
       "ctr": null,
       "alert_checked": false
+    },
+    {
+      "video_id": "TKSDYT5d8OQ",
+      "title": "Here are a few options, playing with different angles, under 60 characters:\n\n**Controversial/Shockin",
+      "topic": "the truth about the stock market nobody tells you",
+      "topic_category": "investing",
+      "upload_time": "2026-06-09T13:11:26.867359+00:00",
+      "day_of_week": "Tuesday",
+      "upload_hour_utc": 13,
+      "timing_key": "Tuesday_13",
+      "estimated_duration": 60,
+      "duration_bucket": "45-60",
+      "title_style": "statement",
+      "ab_variant": "A",
+      "metrics_24h_fetched": false,
+      "metrics_72h_fetched": false,
+      "views_24h": null,
+      "views_72h": null,
+      "likes_24h": null,
+      "avg_view_percentage": null,
+      "ctr": null,
+      "alert_checked": false
     }
   ],
   "topic_performance": {},
