@@ -417,6 +417,28 @@
       "avg_view_percentage": null,
       "ctr": null,
       "alert_checked": false
+    },
+    {
+      "video_id": "JkSFq7mP2vg",
+      "title": "Here are a few options, playing on different triggers, all under 60 characters:\n\n**Shocking/Controve",
+      "topic": "shocking money facts most people don't know",
+      "topic_category": "money_general",
+      "upload_time": "2026-06-09T16:09:51.437463+00:00",
+      "day_of_week": "Tuesday",
+      "upload_hour_utc": 16,
+      "timing_key": "Tuesday_16",
+      "estimated_duration": 60,
+      "duration_bucket": "45-60",
+      "title_style": "shocking_statement",
+      "ab_variant": "A",
+      "metrics_24h_fetched": false,
+      "metrics_72h_fetched": false,
+      "views_24h": null,
+      "views_72h": null,
+      "likes_24h": null,
+      "avg_view_percentage": null,
+      "ctr": null,
+      "alert_checked": false
     }
   ],
   "topic_performance": {},
