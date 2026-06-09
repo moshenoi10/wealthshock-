@@ -241,6 +241,28 @@
       "avg_view_percentage": null,
       "ctr": null,
       "alert_checked": false
+    },
+    {
+      "video_id": "C2zLyQ21A1Q",
+      "title": "Here are a few options for a viral YouTube Shorts title under 60 characters, playing on psychologica",
+      "topic": "financial mistakes destroying your future",
+      "topic_category": "money_general",
+      "upload_time": "2026-06-09T10:10:52.206192+00:00",
+      "day_of_week": "Tuesday",
+      "upload_hour_utc": 10,
+      "timing_key": "Tuesday_10",
+      "estimated_duration": 60,
+      "duration_bucket": "45-60",
+      "title_style": "statement",
+      "ab_variant": "A",
+      "metrics_24h_fetched": false,
+      "metrics_72h_fetched": false,
+      "views_24h": null,
+      "views_72h": null,
+      "likes_24h": null,
+      "avg_view_percentage": null,
+      "ctr": null,
+      "alert_checked": false
     }
   ],
   "topic_performance": {},
