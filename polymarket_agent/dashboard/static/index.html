@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Polymarket Agent</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Courier New',monospace;background:#0a0a0a;color:#c0c0c0;padding-bottom:40px}
+.hdr{padding:18px 24px;border-bottom:1px solid #1a1a1a;display:flex;align-items:center;gap:12px}
+.hdr h1{font-size:20px;color:#e0e0e0;letter-spacing:1px}
+.badge{padding:3px 10px;border-radius:4px;font-size:11px;font-weight:bold;letter-spacing:1px}
+.badge.paper{background:#0d2218;color:#00cc66;border:1px solid #00cc6655}
+.badge.live{background:#2a0a0a;color:#ff4444;border:1px solid #ff4444;animation:blink 1s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;padding:20px 24px}
+.card{background:#101010;border:1px solid #1e1e1e;border-radius:6px;padding:14px}
+.card .lbl{font-size:10px;color:#555;text-transform:uppercase;letter-spacing:2px;margin-bottom:6px}
+.card .val{font-size:26px;font-weight:bold}
+.pos{color:#00cc66}.neg{color:#ff4444}.neu{color:#e0e0e0}.warn{color:#ffcc00}
+section{padding:0 24px 24px}
+section h2{font-size:11px;text-transform:uppercase;letter-spacing:2px;color:#444;
+  padding:16px 0 10px;border-bottom:1px solid #1a1a1a;margin-bottom:0}
+table{width:100%;border-collapse:collapse;font-size:11px}
+th{text-align:left;padding:8px 10px;color:#444;font-weight:normal;text-transform:uppercase;letter-spacing:1px}
+td{padding:7px 10px;border-bottom:1px solid #0d0d0d}
+tr:hover td{background:#111}
+.tag{display:inline-block;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:bold}
+.tag.buy{background:#0a1e12;color:#00cc66;border:1px solid #00cc6644}
+.tag.sell{background:#1e0a0a;color:#ff4444;border:1px solid #ff444444}
+.strat{background:#111;color:#8899ff;border:1px solid #8899ff33;padding:1px 6px;border-radius:3px;font-size:10px}
+.empty{color:#333;text-align:center;padding:24px}
+.foot{position:fixed;bottom:0;left:0;right:0;background:#080808;border-top:1px solid #1a1a1a;
+  padding:7px 24px;display:flex;justify-content:space-between;font-size:10px;color:#444}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px}
+.dot.ok{background:#00cc66;animation:pulse 2s infinite}
+.dot.warn{background:#ffcc00}
+.dot.err{background:#ff4444}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <h1>POLYMARKET AGENT</h1>
+  <span class="badge paper" id="mode-badge">PAPER</span>
+  <span style="color:#333;font-size:11px;margin-left:auto" id="last-upd">—</span>
+</div>
+
+<div class="grid">
+  <div class="card"><div class="lbl">Balance</div><div class="val neu" id="s-balance">—</div></div>
+  <div class="card"><div class="lbl">Total PnL</div><div class="val" id="s-tpnl">—</div></div>
+  <div class="card"><div class="lbl">Daily PnL</div><div class="val" id="s-dpnl">—</div></div>
+  <div class="card"><div class="lbl">Unrealized</div><div class="val" id="s-upnl">—</div></div>
+  <div class="card"><div class="lbl">Positions</div><div class="val neu" id="s-pos">—</div></div>
+  <div class="card"><div class="lbl">Trades Today</div><div class="val neu" id="s-trades">—</div></div>
+  <div class="card"><div class="lbl">Loop #</div><div class="val neu" id="s-loop">—</div></div>
+  <div class="card"><div class="lbl">Errors</div><div class="val" id="s-err">—</div></div>
+</div>
+
+<section>
+  <h2>Open Positions</h2>
+  <table>
+    <thead><tr>
+      <th>Market</th><th>Strategy</th><th>Side</th>
+      <th>Entry</th><th>Current</th><th>Size</th><th>Unreal. PnL</th>
+    </tr></thead>
+    <tbody id="pos-body"><tr><td colspan="7" class="empty">No open positions</td></tr></tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Recent Trades</h2>
+  <table>
+    <thead><tr>
+      <th>Time</th><th>Strategy</th><th>Market</th><th>Side</th>
+      <th>Price</th><th>Size</th><th>PnL</th><th>Reasoning</th>
+    </tr></thead>
+    <tbody id="tr-body"><tr><td colspan="8" class="empty">No trades yet</td></tr></tbody>
+  </table>
+</section>
+
+<div class="foot">
+  <div><span class="dot ok" id="dot"></span><span id="foot-txt">Connecting…</span></div>
+  <div>Auto-refresh 5s</div>
+  <div>Polymarket Agent v1.0</div>
+</div>
+
+<script>
+const f=(v,d=4)=>v==null?'—':parseFloat(v).toFixed(d);
+const cls=(v)=>parseFloat(v)>0?'pos':parseFloat(v)<0?'neg':'neu';
+const sign=(v)=>parseFloat(v)>=0?'+':'';
+
+async function refresh(){
+  try{
+    const[sr,tr,pr]=await Promise.all([
+      fetch('/api/status'),fetch('/api/trades'),fetch('/api/positions')
+    ]);
+    const s=await sr.json(),trades=await tr.json(),pos=await pr.json();
+
+    const mb=document.getElementById('mode-badge');
+    mb.textContent=(s.mode||'paper').toUpperCase();
+    mb.className='badge '+(s.mode==='live'?'live':'paper');
+
+    document.getElementById('s-balance').textContent='$'+f(s.balance,2);
+
+    const tp=document.getElementById('s-tpnl');
+    tp.textContent=sign(s.total_pnl)+'$'+f(s.total_pnl,2);
+    tp.className='val '+cls(s.total_pnl);
+
+    const dp=document.getElementById('s-dpnl');
+    dp.textContent=sign(s.daily_pnl)+'$'+f(s.daily_pnl,2);
+    dp.className='val '+cls(s.daily_pnl);
+
+    const up=document.getElementById('s-upnl');
+    up.textContent=sign(s.unrealized_pnl)+'$'+f(s.unrealized_pnl,2);
+    up.className='val '+cls(s.unrealized_pnl);
+
+    document.getElementById('s-pos').textContent=s.open_positions||0;
+    document.getElementById('s-trades').textContent=s.trades_today||0;
+    document.getElementById('s-loop').textContent=s.loop_count||0;
+
+    const er=document.getElementById('s-err');
+    er.textContent=s.errors_today||0;
+    er.className='val '+(s.errors_today>0?'neg':'neu');
+
+    document.getElementById('last-upd').textContent=
+      'Updated '+new Date().toLocaleTimeString()+' · Loop #'+(s.loop_count||0);
+
+    const dot=document.getElementById('dot');
+    const ftxt=document.getElementById('foot-txt');
+    if(s.is_paused){
+      dot.className='dot warn';
+      ftxt.textContent='PAUSED — drawdown limit reached';
+    } else {
+      dot.className='dot ok';
+      ftxt.textContent=s.mode==='live'?'LIVE TRADING ACTIVE':'Paper trading — send POST /golive to go live';
+    }
+
+    // Positions
+    const pb=document.getElementById('pos-body');
+    pb.innerHTML=pos.length===0
+      ?'<tr><td colspan="7" class="empty">No open positions</td></tr>'
+      :pos.map(p=>`<tr>
+        <td title="${p.market_question}">${(p.market_question||p.token_id||'').substring(0,38)}…</td>
+        <td><span class="strat">${p.strategy||'?'}</span></td>
+        <td><span class="tag buy">BUY</span></td>
+        <td>${f(p.entry_price)}</td>
+        <td>${f(p.current_price)}</td>
+        <td>$${f(p.size,2)}</td>
+        <td class="${cls(p.unrealized_pnl)}">${sign(p.unrealized_pnl)}$${f(p.unrealized_pnl,4)}</td>
+      </tr>`).join('');
+
+    // Trades
+    const tb=document.getElementById('tr-body');
+    const recent=[...trades].reverse().slice(0,40);
+    tb.innerHTML=recent.length===0
+      ?'<tr><td colspan="8" class="empty">No trades yet — waiting for first opportunity…</td></tr>'
+      :recent.map(t=>`<tr>
+        <td>${new Date(t.logged_at||t.timestamp||0).toLocaleTimeString()}</td>
+        <td><span class="strat">${t.strategy||'?'}</span></td>
+        <td title="${t.market_question}">${(t.market_question||'').substring(0,32)}${(t.market_question||'').length>32?'…':''}</td>
+        <td><span class="tag ${(t.side||'buy').toLowerCase()}">${t.side||'?'}</span></td>
+        <td>${f(t.price)}</td>
+        <td>$${f(t.size,2)}</td>
+        <td class="${t.pnl!=null?cls(t.pnl):'neu'}">${t.pnl!=null?sign(t.pnl)+'$'+f(t.pnl,4):'open'}</td>
+        <td title="${t.reasoning}" style="color:#444;max-width:180px;overflow:hidden;
+          text-overflow:ellipsis;white-space:nowrap">${(t.reasoning||'').substring(0,55)}</td>
+      </tr>`).join('');
+  } catch(e){
+    document.getElementById('dot').className='dot err';
+    document.getElementById('foot-txt').textContent='Connection error: '+e.message;
+  }
+}
+refresh();
+setInterval(refresh,5000);
+</script>
+</body>
+</html>

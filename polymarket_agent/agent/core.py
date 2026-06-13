@@ -1,0 +1,264 @@
+import asyncio
+from datetime import datetime, timezone
+from typing import Dict, List, Optional
+
+import config
+from agent.market_data import MarketDataFetcher
+from agent.executor import OrderExecutor
+from strategies import run_all_strategies
+from risk.manager import RiskManager
+from hedge.system import HedgeSystem
+from logger.trade_logger import TradeLogger
+
+
+class AgentCore:
+    def __init__(self, trade_logger: TradeLogger):
+        self.logger = trade_logger
+        self.mode: str = config.TRADING_MODE
+        self.balance: float = config.INITIAL_BALANCE
+        self.daily_start_balance: float = config.INITIAL_BALANCE
+        self.daily_pnl: float = 0.0
+        self.total_pnl: float = 0.0
+        self.trades_today: int = 0
+        self.is_paused: bool = False
+        self.loop_count: int = 0
+        self.last_loop: Optional[str] = None
+        self.errors_today: int = 0
+        self.positions: Dict[str, dict] = {}
+
+        self.market_data = MarketDataFetcher()
+        self.executor = OrderExecutor()
+        self.risk = RiskManager(self)
+        self.hedge = HedgeSystem(self)
+
+        print(f"\n{'='*60}")
+        print(f"  Polymarket Trading Agent")
+        print(f"  Mode    : {'PAPER TRADING' if self.mode == 'paper' else '>>> LIVE TRADING <<<'}")
+        print(f"  Balance : ${self.balance:.2f} USDC")
+        print(f"  Max pos : ${self.balance * config.MAX_POSITION_PCT:.2f} per trade")
+        print(f"  Budget  : ${config.MAX_TOTAL_BUDGET:.2f} hard cap")
+        print(f"{'='*60}\n")
+
+    async def run_loop(self):
+        while True:
+            try:
+                await self._tick()
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                self.errors_today += 1
+                print(f"[AGENT ERROR] {exc}")
+            await asyncio.sleep(config.LOOP_INTERVAL)
+
+    async def _tick(self):
+        self.loop_count += 1
+        self.last_loop = datetime.now(timezone.utc).isoformat()
+
+        if self.is_paused:
+            print(f"[AGENT] ⏸  Paused. Balance=${self.balance:.2f} daily_pnl=${self.daily_pnl:.4f}")
+            return
+
+        if self.balance < config.MIN_BALANCE:
+            self.is_paused = True
+            print(f"[AGENT] Balance ${self.balance:.2f} < floor ${config.MIN_BALANCE}. Pausing.")
+            return
+
+        # Fetch markets
+        markets = await self.market_data.fetch_active_markets()
+        if not markets:
+            print(f"[AGENT] #{self.loop_count:04d} — no markets returned")
+            return
+
+        print(
+            f"[AGENT] #{self.loop_count:04d} | {len(markets)} markets | "
+            f"balance=${self.balance:.2f} | positions={len(self.positions)} | "
+            f"mode={self.mode.upper()}"
+        )
+
+        # Update prices on open positions
+        self._refresh_positions(markets)
+        await self.hedge.check_and_escalate()
+        self._settle_expired(markets)
+
+        # Run all 6 strategies in parallel
+        opps = await run_all_strategies(markets, self.positions, self.balance)
+        print(f"[AGENT] Found {len(opps)} raw opportunities")
+
+        # Risk filter + rank by EV
+        valid = self.risk.filter(opps)
+        if not valid:
+            print("[AGENT] No opportunities passed risk filter")
+            return
+
+        valid.sort(key=lambda o: o.ev, reverse=True)
+        best = valid[0]
+
+        print(
+            f"[AGENT] Best: {best.strategy} | EV={best.ev:.4f} | "
+            f"{best.market_question[:50]}"
+        )
+
+        # Execute
+        result = await self.executor.execute(best, self.mode, self.balance)
+        if result:
+            self._record_entry(result)
+            self.logger.log_trade(result)
+            await self.hedge.apply(best, result)
+
+        self._check_drawdown()
+        self._print_daily_summary()
+
+    def _record_entry(self, result: dict):
+        cost = result["size"]
+        self.balance = round(self.balance - cost, 6)
+        self.trades_today += 1
+
+        tid = result.get("token_id")
+        if tid and tid not in self.positions:
+            self.positions[tid] = {
+                "market_id": result.get("market_id"),
+                "token_id": tid,
+                "side": result.get("side"),
+                "entry_price": result.get("price"),
+                "size": result.get("size"),
+                "current_price": result.get("price"),
+                "strategy": result.get("strategy"),
+                "market_question": result.get("market_question", ""),
+                "stop_loss_price": round(result.get("price", 0) * (1 - config.STOP_LOSS_PCT), 6),
+                "hedge_size": 0.0,
+                "full_hedge_active": False,
+                "timestamp": result.get("timestamp"),
+            }
+
+    def _refresh_positions(self, markets: List[dict]):
+        market_by_cid = {m.get("condition_id"): m for m in markets}
+        for tid, pos in self.positions.items():
+            market = market_by_cid.get(pos.get("market_id"))
+            if not market:
+                continue
+            for token in market.get("tokens", []):
+                if token.get("token_id") == tid:
+                    pos["current_price"] = float(token.get("price") or pos["current_price"])
+                    break
+
+    def _settle_expired(self, markets: List[dict]):
+        now = datetime.now(timezone.utc)
+        active_cids = {m.get("condition_id") for m in markets}
+
+        for tid in list(self.positions.keys()):
+            pos = self.positions[tid]
+            # If market no longer active → settle at current price
+            if pos.get("market_id") not in active_cids:
+                self._close_position(tid, pos["current_price"], "market_resolved")
+                continue
+
+            # Stop loss
+            if pos["current_price"] <= pos["stop_loss_price"]:
+                self._close_position(tid, pos["current_price"], "stop_loss")
+
+    def _close_position(self, token_id: str, exit_price: float, reason: str):
+        pos = self.positions.pop(token_id, None)
+        if not pos:
+            return
+
+        proceeds = pos["size"] * (exit_price / pos["entry_price"])
+        pnl = round(proceeds - pos["size"], 6)
+        self.balance = round(self.balance + pos["size"] + pnl, 6)
+        self.total_pnl = round(self.total_pnl + pnl, 6)
+        self.daily_pnl = round(self.daily_pnl + pnl, 6)
+
+        close_record = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "strategy": pos.get("strategy"),
+            "market_id": pos.get("market_id"),
+            "token_id": token_id,
+            "market_question": pos.get("market_question", ""),
+            "side": "SELL",
+            "price": exit_price,
+            "entry_price": pos["entry_price"],
+            "size": pos["size"],
+            "pnl": pnl,
+            "reasoning": f"Closed: {reason}",
+            "mode": self.mode,
+            "status": "closed",
+        }
+        self.logger.log_trade(close_record)
+        print(
+            f"[CLOSE] {token_id[:10]}… | reason={reason} | "
+            f"entry={pos['entry_price']:.4f} exit={exit_price:.4f} | "
+            f"PnL=${pnl:+.4f}"
+        )
+
+        # Notify copy-trading tracker
+        if pos.get("strategy") == "copy_trading":
+            from strategies.copy_trading import record_win, record_loss
+            if pnl > 0:
+                record_win(pos.get("wallet", ""))
+            else:
+                record_loss(token_id, pos.get("wallet", ""))
+
+    def _check_drawdown(self):
+        if self.daily_start_balance <= 0:
+            return
+        # Total portfolio value = cash + current market value of all open positions
+        positions_value = sum(
+            (pos["current_price"] / pos["entry_price"]) * pos["size"]
+            for pos in self.positions.values()
+            if pos.get("entry_price", 0) > 0
+        )
+        total_value = self.balance + positions_value
+        drawdown = (self.daily_start_balance - total_value) / self.daily_start_balance
+        if drawdown >= config.DAILY_DRAWDOWN_LIMIT and not self.is_paused:
+            self.is_paused = True
+            print(
+                f"[RISK] ⛔ Daily drawdown {drawdown:.1%} ≥ {config.DAILY_DRAWDOWN_LIMIT:.0%}. "
+                f"All trading paused."
+            )
+        if self.daily_pnl < 0 and abs(self.daily_pnl) / self.daily_start_balance > 0.05:
+            print(
+                f"[ALERT] ⚠️  Daily loss exceeds 5%: "
+                f"${self.daily_pnl:.2f} ({abs(self.daily_pnl)/self.daily_start_balance:.1%})"
+            )
+
+    def _print_daily_summary(self):
+        if self.loop_count % 20 == 0:  # every ~10 minutes
+            summary = self.logger.daily_summary()
+            print(
+                f"\n[DAILY SUMMARY] trades={summary['total_trades']} "
+                f"PnL=${summary['total_pnl']:+.4f} "
+                f"win_rate={summary['win_rate']:.1%} "
+                f"by_strategy={summary['by_strategy']}\n"
+            )
+
+    def get_status(self) -> dict:
+        unrealized = sum(
+            (p["current_price"] - p["entry_price"]) * (p["size"] / p["entry_price"])
+            if p["entry_price"] > 0 else 0
+            for p in self.positions.values()
+        )
+        return {
+            "mode": self.mode,
+            "balance": round(self.balance, 4),
+            "total_pnl": round(self.total_pnl, 4),
+            "daily_pnl": round(self.daily_pnl, 4),
+            "unrealized_pnl": round(unrealized, 4),
+            "open_positions": len(self.positions),
+            "trades_today": self.trades_today,
+            "is_paused": self.is_paused,
+            "loop_count": self.loop_count,
+            "last_loop": self.last_loop,
+            "errors_today": self.errors_today,
+        }
+
+    def get_positions(self) -> list:
+        return [
+            {
+                **pos,
+                "unrealized_pnl": round(
+                    (pos["current_price"] - pos["entry_price"])
+                    * (pos["size"] / pos["entry_price"]) if pos["entry_price"] > 0 else 0,
+                    6,
+                ),
+            }
+            for pos in self.positions.values()
+        ]

@@ -1,0 +1,39 @@
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()
+
+POLYMARKET_HOST = os.getenv("POLYMARKET_HOST", "https://clob.polymarket.com")
+GAMMA_HOST = "https://gamma-api.polymarket.com"
+CHAIN_ID = int(os.getenv("CHAIN_ID", "137"))
+PRIVATE_KEY = os.getenv("PRIVATE_KEY", "")
+
+TRADING_MODE = os.getenv("TRADING_MODE", "paper")
+INITIAL_BALANCE = float(os.getenv("INITIAL_BALANCE", "18.0"))
+MIN_BALANCE = 10.0
+MAX_TOTAL_BUDGET = 18.0
+
+MAX_POSITION_PCT = 0.10
+STOP_LOSS_PCT = 0.15
+DAILY_DRAWDOWN_LIMIT = 0.08
+MIN_LIQUIDITY = 500.0
+
+NEAR_RESOLUTION_WINDOW_MIN = 5
+NEAR_RESOLUTION_MAX_PRICE = 0.98
+NEAR_RESOLUTION_MIN_EDGE = 0.015
+ARBITRAGE_MAX_SUM = 0.98
+REPRICING_MIN_DEVIATION = 0.02
+CROSS_TIMEFRAME_MIN_DIVERGENCE = 0.03
+
+HEDGE_PCT = 0.15
+FULL_HEDGE_TRIGGER_PCT = 0.08
+
+LOOP_INTERVAL = 30
+ORDER_CANCEL_DELAY = 10
+
+PORT = int(os.getenv("PORT", "8080"))
+
+DATA_DIR = Path("data")
+TRADES_FILE = DATA_DIR / "trades.json"
+WALLET_SCORES_FILE = DATA_DIR / "wallet_scores.json"

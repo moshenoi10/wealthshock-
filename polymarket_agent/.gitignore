@@ -1,0 +1,30 @@
+# NEVER commit secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Runtime data (generated at runtime, not source)
+data/trades.json
+data/wallet_scores.json
+data/orderFilled.csv
+data/markets.csv
+data/trades.csv
+poly_data/data/
+
+# Logs
+*.log
+
+# macOS
+.DS_Store
