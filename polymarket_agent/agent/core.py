@@ -15,7 +15,6 @@ from logger.trade_logger import TradeLogger
 _STRATEGY_NAMES = [
     "near_resolution", "pure_arbitrage", "directional_arb",
     "repricing", "cross_timeframe", "copy_trading",
-    "exploit_new_market", "exploit_liquidity_trap",
 ]
 
 
