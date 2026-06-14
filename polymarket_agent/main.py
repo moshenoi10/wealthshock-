@@ -296,6 +296,75 @@ async def api_detective_scan(_: dict = _auth_trader):
     return JSONResponse({"status": "scanning"})
 
 
+@app.get("/api/platform-summary")
+async def api_platform_summary(_: dict = _auth_viewer):
+    """Combined stats across all 3 platforms for the unified header row."""
+    poly_balance = _agent.balance if _agent else 0.0
+    poly_pnl     = _agent.total_pnl if _agent else 0.0
+
+    ks = kalshi_sim.get_status()
+    cs = crypto_arb_sim.get_status()
+
+    k_balance = ks.get("balance", kalshi_sim.INITIAL_BALANCE)
+    k_pnl     = ks.get("total_pnl", 0.0)
+    c_balance = cs.get("balance", crypto_arb_sim.INITIAL_BALANCE)
+    c_pnl     = cs.get("total_pnl", 0.0)
+
+    combined_balance = round(poly_balance + k_balance + c_balance, 2)
+    combined_pnl     = round(poly_pnl    + k_pnl     + c_pnl,     2)
+
+    # Per-platform health signal
+    def _health(pnl, trades):
+        if trades == 0:
+            return "waiting"
+        return "green" if pnl >= 0 else "red"
+
+    poly_trades = _agent.get_status().get("trades_today", 0) if _agent else 0
+    return JSONResponse({
+        "combined_balance": combined_balance,
+        "combined_pnl":     combined_pnl,
+        "platforms": {
+            "polymarket": {
+                "balance": round(poly_balance, 2),
+                "pnl":     round(poly_pnl, 4),
+                "trades":  poly_trades,
+                "health":  _health(poly_pnl, poly_trades),
+                "active_strategy": "copy_trading",
+            },
+            "kalshi": {
+                "balance":    round(k_balance, 2),
+                "pnl":        round(k_pnl, 4),
+                "trades":     ks.get("trades", 0),
+                "health":     _health(k_pnl, ks.get("trades", 0)),
+                "threshold":  ks.get("current_threshold", "?"),
+                "verdict":    ks.get("verdict", ""),
+            },
+            "crypto": {
+                "balance": round(c_balance, 2),
+                "pnl":     round(c_pnl, 4),
+                "trades":  cs.get("trades", 0),
+                "health":  _health(c_pnl, cs.get("trades", 0)),
+                "scan_count": cs.get("scan_count", 0),
+            },
+        },
+    })
+
+
+@app.get("/api/kalshi/debug")
+async def api_kalshi_debug(_: dict = _auth_viewer):
+    """Full Kalshi scan log with per-scan spread details."""
+    status = kalshi_sim.get_status()
+    return JSONResponse({
+        "current_threshold":  status.get("current_threshold"),
+        "consecutive_zeros":  status.get("consecutive_zeros"),
+        "verdict":            status.get("verdict"),
+        "last_scan":          status.get("last_scan"),
+        "last_scan_detail":   status.get("last_scan_detail"),
+        "scan_log":           status.get("scan_log", []),
+        "total_scanned":      status.get("scanned", 0),
+    })
+
+
 @app.get("/api/exploit-log")
 async def api_exploit_log(_: dict = _auth_viewer):
     """Return exploit strategy stats + daily CSV rows."""

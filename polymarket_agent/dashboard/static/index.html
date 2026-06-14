@@ -91,6 +91,27 @@ body{
            color:var(--text3);letter-spacing:1px}
 
 /* ─────────────────────────────────────────────────────────────
+   UNIFIED PLATFORM SUMMARY BAR
+───────────────────────────────────────────────────────────── */
+.plat-summary{
+  display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr;
+  background:#0d0d12;
+  border-bottom:2px solid var(--border);
+}
+.ps-col{
+  padding:10px 20px;border-left:1px solid #1e1e28;
+  display:flex;flex-direction:column;gap:3px;
+}
+.ps-col:last-child{border-left:none}
+.ps-lbl{font-size:9px;color:var(--text4);text-transform:uppercase;letter-spacing:2.5px;font-weight:700}
+.ps-val{font-size:18px;font-weight:700;font-family:'SF Mono','Courier New',monospace}
+.ps-sub{font-size:11px;color:var(--text4);display:flex;gap:8px;align-items:center}
+.ph-dot{width:6px;height:6px;border-radius:50%;display:inline-block;flex-shrink:0}
+.ph-green{background:var(--green)}
+.ph-red{background:var(--red)}
+.ph-wait{background:var(--text4)}
+
+/* ─────────────────────────────────────────────────────────────
    SYSTEM HEALTH STRIP
 ───────────────────────────────────────────────────────────── */
 .health{
@@ -632,6 +653,30 @@ tbody tr:hover td{background:var(--bg3)}
   <button class="btn-logout" id="logout-btn" onclick="doLogout()" style="display:none">יציאה</button>
 </div>
 
+<!-- ═══ UNIFIED PLATFORM SUMMARY ══════════════════════════════ -->
+<div class="plat-summary">
+  <div class="ps-col">
+    <div class="ps-lbl">סה״כ כל הפלטפורמות</div>
+    <div class="ps-val" id="ps-total-bal">—</div>
+    <div class="ps-sub">PnL: <span id="ps-total-pnl">—</span></div>
+  </div>
+  <div class="ps-col">
+    <div class="ps-lbl"><span class="ph-dot ph-wait" id="ps-poly-dot"></span> Polymarket</div>
+    <div class="ps-val" id="ps-poly-bal">—</div>
+    <div class="ps-sub">PnL: <span id="ps-poly-pnl">—</span> · Copy Trading בלבד</div>
+  </div>
+  <div class="ps-col">
+    <div class="ps-lbl"><span class="ph-dot ph-wait" id="ps-crypto-dot"></span> Crypto Arb</div>
+    <div class="ps-val" id="ps-crypto-bal">—</div>
+    <div class="ps-sub">PnL: <span id="ps-crypto-pnl">—</span> · <span id="ps-crypto-rate">—</span>/יום</div>
+  </div>
+  <div class="ps-col">
+    <div class="ps-lbl"><span class="ph-dot ph-wait" id="ps-kalshi-dot"></span> Kalshi</div>
+    <div class="ps-val" id="ps-kalshi-bal">—</div>
+    <div class="ps-sub">סף: <span id="ps-kalshi-thresh">—</span> · <span id="ps-kalshi-verdict" style="color:var(--yellow);font-size:10px">בודק...</span></div>
+  </div>
+</div>
+
 <!-- ═══ SYSTEM HEALTH ════════════════════════════════════════════ -->
 <div class="health">
   <div class="hi"><div class="hi-lbl">לופ #</div><div class="hi-val w" id="h-loop">—</div></div>
@@ -655,6 +700,23 @@ tbody tr:hover td{background:var(--bg3)}
 <!-- ─── TAB: POLYMARKET ──────────────────────────────────────── -->
 <div class="tab-panel active" id="tab-poly">
 <div class="page">
+
+  <!-- STATUS NOTICE -->
+  <div style="background:rgba(255,204,0,.05);border:1px solid rgba(255,204,0,.25);border-radius:2px;padding:12px 20px;display:flex;align-items:center;gap:14px">
+    <span style="font-size:18px">⚠️</span>
+    <div>
+      <div style="font-size:12px;font-weight:700;color:var(--yellow);letter-spacing:1px">Copy Trading בלבד — 5 אסטרטגיות הושבתו</div>
+      <div style="font-size:11px;color:var(--text4);margin-top:3px">NR · PA · DA · RP · CT מושבתות. רק העתקת עסקאות פעילה. מעקב 24 שעות, לאחר מכן החלטה.</div>
+    </div>
+    <div style="margin-right:auto;text-align:left">
+      <div style="font-size:10px;color:var(--text4)">ארנקים במעקב</div>
+      <div style="font-size:20px;font-weight:700;font-family:'SF Mono','Courier New',monospace;color:var(--blue)" id="ct-wallets">—</div>
+    </div>
+    <div style="text-align:left">
+      <div style="font-size:10px;color:var(--text4)">עסקת Copy האחרונה</div>
+      <div style="font-size:12px;color:var(--text2);margin-top:4px" id="ct-last-trade">—</div>
+    </div>
+  </div>
 
   <!-- 5 BIG METRICS -->
   <div class="metrics">
@@ -741,67 +803,13 @@ tbody tr:hover td{background:var(--bg3)}
     </div>
   </div>
 
-  <!-- THRESHOLD TUNING HISTORY -->
+  <!-- COPY TRADING STATUS -->
   <div class="card">
     <div class="ch">
-      <span class="ch-title">היסטוריית כיוון סף</span>
-      <span class="ch-meta">ניסויים שבוצעו</span>
+      <span class="ch-title">Copy Trading — סטטוס</span>
+      <span class="ch-meta" id="ct-meta">ממתין לנתונים...</span>
     </div>
-    <div class="th-hdr">
-      <span>תאריך</span><span>שם ניסוי</span><span>ערכי סף</span><span>תוצאת PnL</span><span>מסקנה</span>
-    </div>
-
-    <!-- Run 1: Conservative baseline -->
-    <div class="th-row">
-      <div>
-        <div class="th-date">2026-06-14</div>
-        <div style="font-size:10px;color:var(--text4);margin-top:2px">הפעלה ראשונה</div>
-      </div>
-      <div>
-        <div class="th-name">סף שמרני — בסיס</div>
-        <div class="th-name-sub">1,477 לולאות · 1 עסקה</div>
-      </div>
-      <div class="th-vals">NR: 1.5% · PA: 0.98 · RP: 2%<br>CT: 3% · CP: 55% / 20 עסקות</div>
-      <div class="th-pnl w3">—</div>
-      <div><span class="pill pill-n">בסיס</span></div>
-    </div>
-
-    <!-- Run 2: Loosened — FAILED -->
-    <div class="th-row">
-      <div>
-        <div class="th-date">2026-06-14</div>
-        <div style="font-size:10px;color:var(--red);margin-top:2px">נכשל</div>
-      </div>
-      <div>
-        <div class="th-name" style="color:var(--red)">סף רופף — נכשל ✕</div>
-        <div class="th-name-sub">יותר עסקאות · אין היתרון</div>
-      </div>
-      <div class="th-vals">NR: 0.5% · PA: 0.995 · RP: 1%<br>CT: 1.5% · CP: 44% / 16 עסקות</div>
-      <div>
-        <div class="th-pnl r">−$7.39</div>
-        <div style="font-size:11px;color:var(--text4);margin-top:2px">$18 ← $10.61</div>
-      </div>
-      <div><span class="pill pill-r">נכשל</span></div>
-    </div>
-
-    <!-- Run 3: Reverted — ACTIVE NOW -->
-    <div class="th-row" style="border-right:3px solid var(--green)">
-      <div>
-        <div class="th-date">2026-06-14</div>
-        <div style="font-size:10px;color:var(--green);margin-top:2px">✓ פעיל עכשיו</div>
-      </div>
-      <div>
-        <div class="th-name" style="color:var(--green)">חזרה לסף שמרני ✓</div>
-        <div class="th-name-sub">איכות על פני כמות</div>
-      </div>
-      <div class="th-vals">NR: 1.5% · PA: 0.98 · RP: 2%<br>CT: 3% · CP: 55% / 20 עסקות</div>
-      <div class="th-pnl w3">בהמתנה</div>
-      <div><span class="pill pill-g">פעיל</span></div>
-    </div>
-
-    <div class="th-lesson">
-      💡 לקח: סף נמוך = עסקאות רבות יותר אך היתרון נעלם. עדיף להמתין לאותות איכותיים עם היתרון גבוה.
-    </div>
+    <div id="ct-status-body" style="padding:16px 20px;color:var(--text4);font-size:13px">ממתין לנתוני עסקאות...</div>
   </div>
 
   <!-- POSITION CARDS -->
@@ -896,10 +904,41 @@ tbody tr:hover td{background:var(--bg3)}
     </div>
   </div>
 
-  <!-- Scan debug log -->
+  <!-- Debug + auto-threshold panel -->
   <div class="card" style="margin-top:12px">
-    <div class="ch"><span class="ch-title">לוג סריקות — Kalshi</span><span id="k-last-scan" style="font-size:11px;color:var(--text4)"></span></div>
-    <div id="k-scan-log" style="padding:8px 16px;font-family:'SF Mono','Courier New',monospace;font-size:11px;color:var(--text4);max-height:140px;overflow-y:auto"></div>
+    <div class="ch">
+      <span class="ch-title">DEBUG — Kalshi Arb</span>
+      <span id="k-last-scan" style="font-size:11px;color:var(--text4)"></span>
+    </div>
+    <div style="padding:12px 20px;display:grid;grid-template-columns:repeat(4,1fr);gap:16px;border-bottom:1px solid #1d1d24">
+      <div>
+        <div style="font-size:10px;color:var(--text4);letter-spacing:2px;text-transform:uppercase;margin-bottom:6px">סף נוכחי</div>
+        <div style="font-size:24px;font-weight:700;font-family:'SF Mono','Courier New',monospace;color:var(--yellow)" id="k-threshold">—</div>
+      </div>
+      <div>
+        <div style="font-size:10px;color:var(--text4);letter-spacing:2px;text-transform:uppercase;margin-bottom:6px">סריקות ריקות ברצף</div>
+        <div style="font-size:24px;font-weight:700;font-family:'SF Mono','Courier New',monospace" id="k-zeros">—</div>
+      </div>
+      <div>
+        <div style="font-size:10px;color:var(--text4);letter-spacing:2px;text-transform:uppercase;margin-bottom:6px">שווקים עם מחיר</div>
+        <div style="font-size:24px;font-weight:700;font-family:'SF Mono','Courier New',monospace" id="k-with-price">—</div>
+      </div>
+      <div>
+        <div style="font-size:10px;color:var(--text4);letter-spacing:2px;text-transform:uppercase;margin-bottom:6px">תואמו ל-Polymarket</div>
+        <div style="font-size:24px;font-weight:700;font-family:'SF Mono','Courier New',monospace" id="k-matched">—</div>
+      </div>
+    </div>
+    <div style="padding:10px 20px;background:rgba(255,204,0,.04);border-bottom:1px solid #1d1d24">
+      <span style="font-size:10px;color:var(--text4);text-transform:uppercase;letter-spacing:2px">מסקנה אוטומטית: </span>
+      <span style="font-size:12px;color:var(--yellow)" id="k-verdict">—</span>
+    </div>
+    <!-- Top 5 spreads found -->
+    <div style="padding:10px 20px;border-bottom:1px solid #1d1d24">
+      <div style="font-size:10px;color:var(--text4);text-transform:uppercase;letter-spacing:2px;margin-bottom:8px">5 הפערים הגדולים ביותר שנמצאו (ללא קשר לסף)</div>
+      <div id="k-top5" style="font-family:'SF Mono','Courier New',monospace;font-size:11px;color:var(--text4)">—</div>
+    </div>
+    <!-- Scan log -->
+    <div style="padding:8px 16px;font-family:'SF Mono','Courier New',monospace;font-size:11px;color:var(--text4);max-height:160px;overflow-y:auto" id="k-scan-log"></div>
   </div>
 
 </div>
@@ -953,14 +992,31 @@ tbody tr:hover td{background:var(--bg3)}
     </div>
   </div>
 
-  <!-- Scan debug log -->
+  <!-- Extrapolation + pair breakdown -->
   <div class="card" style="margin-top:12px">
     <div class="ch">
-      <span class="ch-title">לוג סריקות — קריפטו</span>
+      <span class="ch-title">ביצועים והקרנה</span>
       <span id="c-last-scan" style="font-size:11px;color:var(--text4)"></span>
-      <span id="c-threshold" style="font-size:11px;color:var(--text4);margin-right:8px"></span>
     </div>
-    <div id="c-scan-log" style="padding:8px 16px;font-family:'SF Mono','Courier New',monospace;font-size:11px;color:var(--text4);max-height:140px;overflow-y:auto"></div>
+    <div style="padding:12px 20px;display:grid;grid-template-columns:repeat(4,1fr);gap:16px;border-bottom:1px solid #1d1d24">
+      <div>
+        <div style="font-size:10px;color:var(--text4);letter-spacing:2px;text-transform:uppercase;margin-bottom:6px">קצב יומי (מוקרן)</div>
+        <div style="font-size:22px;font-weight:700;font-family:'SF Mono','Courier New',monospace;color:var(--green)" id="c-daily-rate">—</div>
+      </div>
+      <div>
+        <div style="font-size:10px;color:var(--text4);letter-spacing:2px;text-transform:uppercase;margin-bottom:6px">חודשי (מוקרן)</div>
+        <div style="font-size:22px;font-weight:700;font-family:'SF Mono','Courier New',monospace;color:var(--green)" id="c-monthly-rate">—</div>
+      </div>
+      <div>
+        <div style="font-size:10px;color:var(--text4);letter-spacing:2px;text-transform:uppercase;margin-bottom:6px">פריסת עסקאות / זוג</div>
+        <div style="font-size:13px;color:var(--text2);margin-top:8px" id="c-pair-breakdown">—</div>
+      </div>
+      <div>
+        <div style="font-size:10px;color:var(--text4);letter-spacing:2px;text-transform:uppercase;margin-bottom:6px">זוג הכי רווחי</div>
+        <div style="font-size:22px;font-weight:700;color:var(--blue)" id="c-best-pair">—</div>
+      </div>
+    </div>
+    <div style="padding:8px 16px;font-family:'SF Mono','Courier New',monospace;font-size:11px;color:var(--text4);max-height:140px;overflow-y:auto" id="c-scan-log"></div>
   </div>
 
 </div>
@@ -1331,19 +1387,14 @@ function updateKalshi(data){
   setVal('k-trades',data.trades||0,'w');
   setVal('k-scanned',data.scanned||0,'w');
 
-  // Win rate card
   const wr=data.win_rate||0,tot=data.trades||0;
   const wrEl=document.getElementById('k-winrate');
   if(wrEl){wrEl.textContent=(tot>0?(wr*100).toFixed(0)+'%':'—');wrEl.className='sim-val '+(wr>=.5?'g':wr>0?'y':'w3');}
 
-  // Opportunities
+  // Opportunities panel
   const ob=document.getElementById('k-opps-body');
-  const opps=data.opportunities||[];
-  const top=data.top_markets||[];
-
-  if(!opps.length && !top.length){
-    ob.innerHTML='<div class="empty">ממתין לנתוני Kalshi... (סריקה כל 60 שניות)</div>';
-  } else if(opps.length){
+  const opps=data.opportunities||[],top=data.top_markets||[];
+  if(opps.length){
     ob.innerHTML=opps.map(o=>`<div class="sim-opp-item">
       <div class="sim-opp-q"><strong>${(o.question||'').substring(0,60)}</strong></div>
       <div class="sim-opp-row">
@@ -1352,19 +1403,20 @@ function updateKalshi(data){
         <span class="sim-edge">פער: ${(o.edge*100).toFixed(2)}% · קנה ${o.buy_platform}</span>
       </div>
     </div>`).join('');
-  } else {
-    // Show raw Kalshi markets as reference
-    ob.innerHTML='<div style="padding:10px 20px;font-size:11px;color:var(--text4)">אין פער מספיק לארביטראז׳ — שווקי Kalshi פעילים:</div>'+
+  } else if(top.length){
+    ob.innerHTML='<div style="padding:10px 20px;font-size:11px;color:var(--text4)">אין פער — שווקי Kalshi:</div>'+
     top.map(m=>`<div class="sim-opp-item">
       <div class="sim-opp-q">${m.title}</div>
       <div class="sim-opp-row"><span>YES: <strong>${f(m.yes_price)}</strong></span></div>
     </div>`).join('');
+  } else {
+    ob.innerHTML='<div class="empty">ממתין לנתוני Kalshi...</div>';
   }
 
   // Trades table
   const tb=document.getElementById('k-trades-body');
   const kt=data.sim_trades||[];
-  if(!kt.length){tb.innerHTML='<tr><td colspan="5" class="empty">אין עסקאות הדמיה עדיין — ממתין לפער >1.5%</td></tr>';}
+  if(!kt.length){tb.innerHTML='<tr><td colspan="5" class="empty">אין עסקאות עדיין</td></tr>';}
   else tb.innerHTML=kt.slice(0,30).map(t=>{const pc=t.pnl>0?'dp':t.pnl<0?'dn':'';
     return`<tr>
       <td style="color:var(--text4);font-family:'SF Mono','Courier New',monospace;white-space:nowrap">${fmtT(t.ts)}</td>
@@ -1374,27 +1426,46 @@ function updateKalshi(data){
       <td class="${pc}" style="direction:ltr;text-align:left;font-family:'SF Mono','Courier New',monospace">${t.pnl!=null?((t.pnl>=0?'+':'')+'$'+f(t.pnl,4)):'פתוח'}</td>
     </tr>`}).join('');
 
-  // Scan log
+  // ── Debug panel ──
   const kls=document.getElementById('k-last-scan');
-  if(kls&&data.last_scan)kls.textContent=' · סריקה אחרונה: '+fmtT(data.last_scan);
+  if(kls&&data.last_scan)kls.textContent=' · '+fmtT(data.last_scan);
+
+  const d=data.last_scan_detail||{};
+  const thresh=data.current_threshold||'—';
+  const elT=document.getElementById('k-threshold');
+  if(elT)elT.textContent=thresh;
+  const elZ=document.getElementById('k-zeros');
+  if(elZ){elZ.textContent=data.consecutive_zeros||0;elZ.className='sim-val '+(data.consecutive_zeros>=3?'r':'w3');}
+  const elWP=document.getElementById('k-with-price');
+  if(elWP)elWP.textContent=(d.with_price||0);
+  const elM=document.getElementById('k-matched');
+  if(elM)elM.textContent=(d.matched_to_poly||0);
+
+  const verdict=data.verdict||d.verdict||'';
+  const vEl=document.getElementById('k-verdict');
+  if(vEl)vEl.textContent=verdict||'בודק...';
+
+  // Top-5 spreads
+  const t5El=document.getElementById('k-top5');
+  const top5=d.top5_spreads||[];
+  if(t5El){
+    if(!top5.length){t5El.textContent='אין נתונים עדיין';}
+    else t5El.innerHTML=top5.map(s=>
+      `<div style="padding:2px 0">${s.title} — <span style="color:var(--${s.spread_pct>1?'green':'text3'})">${s.spread_pct}%</span></div>`
+    ).join('');
+  }
+
+  // Scan log
   const klg=document.getElementById('k-scan-log');
   const scanLog=data.scan_log||[];
   if(klg){
-    if(!scanLog.length){
-      const d=data.last_scan_detail||{};
-      klg.innerHTML=d.ts
-        ? `${fmtT(d.ts)} fetched=${d.kalshi_markets_fetched||0} with_price=${d.with_price||0} ` +
-          `matched=${d.matched_to_poly||0} spread≥${(2.5).toFixed(1)}%=${d.spread_above_min||0} ` +
-          `traded=${d.trades_this_scan||0}`
-        : 'ממתין לסריקה ראשונה...';
-    } else {
-      klg.innerHTML=scanLog.map(l=>
-        `<div style="padding:2px 0;border-bottom:1px solid #1a1a1e">` +
-        `${fmtT(l.ts)} | fetched=${l.kalshi_markets_fetched||0} ` +
-        `price=${l.with_price||0} matched=${l.matched_to_poly||0} ` +
-        `arb≥2.5%=${l.spread_above_min||0} traded=${l.trades_this_scan||0}</div>`
-      ).join('');
-    }
+    if(!scanLog.length){klg.textContent='ממתין לסריקה ראשונה...';}
+    else klg.innerHTML=scanLog.map(l=>{
+      const top5str=(l.top5_spreads||[]).slice(0,2).map(s=>`${s.spread_pct}%`).join(', ')||'none';
+      return`<div style="padding:2px 0;border-bottom:1px solid #1a1a1e">${fmtT(l.ts)} | `+
+        `fetched=${l.kalshi_markets_fetched||0} price=${l.with_price||0} matched=${l.matched_to_poly||0} `+
+        `arb≥${l.current_threshold_pct||'?'}%=${l.spread_above_min||0} | top5: [${top5str}]</div>`;
+    }).join('');
   }
 }
 
@@ -1447,26 +1518,131 @@ function updateCrypto(data){
       <td class="${pc}" style="direction:ltr;text-align:left;font-family:'SF Mono','Courier New',monospace">${t.pnl!=null?(t.pnl>=0?'+':'')+'$'+f(t.pnl,4):'פתוח'}</td>
     </tr>`}).join('');
 
-  // Scan log
+  // ── Extrapolation + pair breakdown ──
   const cls=document.getElementById('c-last-scan');
-  if(cls&&data.last_scan)cls.textContent=' · סריקה אחרונה: '+fmtT(data.last_scan);
-  const cthr=document.getElementById('c-threshold');
-  if(cthr)cthr.textContent='סף: '+(data.min_spread_pct||'—');
+  if(cls&&data.last_scan)cls.textContent=' · '+fmtT(data.last_scan);
+
+  const trades=data.sim_trades||[];
+  const pnl=data.total_pnl||0;
+  const scanCount=data.scan_count||1;
+  // Each scan = 30s → scans per day = 2880
+  const scansPerDay=2880,pnlPerScan=pnl/Math.max(scanCount,1);
+  const dailyRate=pnlPerScan*scansPerDay;
+  const monthlyRate=dailyRate*30;
+
+  const drEl=document.getElementById('c-daily-rate');
+  if(drEl)drEl.textContent=dailyRate>0?'+$'+dailyRate.toFixed(2):'$'+dailyRate.toFixed(2);
+  const mrEl=document.getElementById('c-monthly-rate');
+  if(mrEl)mrEl.textContent=monthlyRate>0?'+$'+monthlyRate.toFixed(2):'$'+monthlyRate.toFixed(2);
+
+  // Per-pair breakdown
+  const pairCount={};const pairPnl={};
+  for(const t of trades){
+    pairCount[t.pair]=(pairCount[t.pair]||0)+1;
+    pairPnl[t.pair]=(pairPnl[t.pair]||0)+(t.pnl||0);
+  }
+  const pbrEl=document.getElementById('c-pair-breakdown');
+  if(pbrEl){
+    const pairs=Object.keys(pairCount);
+    if(!pairs.length){pbrEl.textContent='ממתין...';}
+    else pbrEl.innerHTML=pairs.map(p=>`<div>${p}: ${pairCount[p]} · ${sgn(pairPnl[p])}$${Math.abs(pairPnl[p]).toFixed(3)}</div>`).join('');
+  }
+  const bestPairEl=document.getElementById('c-best-pair');
+  if(bestPairEl){
+    const best=Object.entries(pairPnl).sort((a,b)=>b[1]-a[1])[0];
+    bestPairEl.textContent=best?best[0].replace('/USDT',''):'—';
+  }
+
+  // Scan log
   const clg=document.getElementById('c-scan-log');
   const clog=data.scan_log||[];
   if(clg){
     if(!clog.length){
       const pc=data.price_comparison||[];
       clg.innerHTML=pc.length
-        ? pc.map(p=>`${p.pair}: Binance=${p.binance?'$'+p.binance:'❌'} Kraken=${p.kraken?'$'+p.kraken:'❌'} Coinbase=${p.coinbase?'$'+p.coinbase:'❌'} spread=${(p.max_spread*100).toFixed(4)}%`).join('<br>')
+        ? pc.map(p=>`${p.pair}: BN=${p.binance?'$'+p.binance:'❌'} KR=${p.kraken?'$'+p.kraken:'❌'} CB=${p.coinbase?'$'+p.coinbase:'❌'} spread=${(p.max_spread*100).toFixed(4)}%`).join('<br>')
         : 'ממתין לנתונים...';
     } else {
       clg.innerHTML=clog.map(l=>
         `<div style="padding:2px 0;border-bottom:1px solid #1a1a1e">` +
-        `${fmtT(l.ts)} | scan#${l.scan} prices_ok=${l.prices_ok||0} ` +
-        `arb_found=${l.arb_found||0} threshold=${l.threshold||'—'}</div>`
+        `${fmtT(l.ts)} | scan#${l.scan} prices_ok=${l.prices_ok||0} `+
+        `arb=${l.arb_found||0} threshold=${l.threshold||'—'}</div>`
       ).join('');
     }
+  }
+}
+
+// ── Platform Summary ────────────────────────────────────────────
+function updatePlatformSummary(d){
+  if(!d)return;
+  const {combined_balance:cb,combined_pnl:cp,platforms:pl}=d;
+  const tbEl=document.getElementById('ps-total-bal');
+  if(tbEl)tbEl.textContent='$'+cb.toFixed(2);
+  const tpEl=document.getElementById('ps-total-pnl');
+  if(tpEl){tpEl.textContent=sgn(cp)+'$'+Math.abs(cp).toFixed(2);tpEl.style.color=cp>=0?'var(--green)':'var(--red)';}
+
+  function setPlat(key,balId,pnlId,dotId,extraFn){
+    const p=pl[key];if(!p)return;
+    const bEl=document.getElementById(balId);if(bEl)bEl.textContent='$'+p.balance.toFixed(2);
+    const pEl=document.getElementById(pnlId);
+    if(pEl){pEl.textContent=sgn(p.pnl)+'$'+Math.abs(p.pnl).toFixed(2);pEl.style.color=p.pnl>=0?'var(--green)':'var(--red)';}
+    const dEl=document.getElementById(dotId);
+    if(dEl){dEl.className='ph-dot ph-'+(p.health==='green'?'green':p.health==='red'?'red':'wait');}
+    if(extraFn)extraFn(p);
+  }
+  setPlat('polymarket','ps-poly-bal','ps-poly-pnl','ps-poly-dot');
+  setPlat('crypto','ps-crypto-bal','ps-crypto-pnl','ps-crypto-dot',p=>{
+    // extrapolate daily from cumulative pnl / scans
+    const scansPerDay=2880,pnlPerScan=p.pnl/Math.max(p.scan_count||1,1);
+    const dr=pnlPerScan*scansPerDay;
+    const drEl=document.getElementById('ps-crypto-rate');
+    if(drEl)drEl.textContent=dr>0?'+$'+dr.toFixed(2):'$'+dr.toFixed(2);
+  });
+  setPlat('kalshi','ps-kalshi-bal','ps-kalshi-pnl','ps-kalshi-dot',p=>{
+    const tEl=document.getElementById('ps-kalshi-thresh');if(tEl)tEl.textContent=p.threshold||'—';
+    const vEl=document.getElementById('ps-kalshi-verdict');
+    if(vEl&&p.verdict){vEl.textContent=p.verdict.substring(0,50);vEl.style.color=p.verdict.startsWith('VERDICT')?'var(--red)':'var(--yellow)';}
+  });
+}
+
+// ── Copy Trading status ─────────────────────────────────────────
+function updateCopyTradingStatus(s,trades){
+  const statsEl=document.getElementById('ct-status-body');
+  const metaEl=document.getElementById('ct-meta');
+  const ct=s.strategy_stats?.copy_trading||{};
+  const t=ct.trades||0,w=ct.wins||0,pnl=ct.pnl||0;
+  const wr=t>0?((w/t)*100).toFixed(0)+'%':'—';
+
+  if(metaEl)metaEl.textContent=`${t} עסקאות · ${wr} הצלחה`;
+
+  const walletEl=document.getElementById('ct-wallets');
+  // wallet count not directly returned; show "tracking"
+  if(walletEl)walletEl.textContent=t>0?'10':'ממתין';
+
+  const lastEl=document.getElementById('ct-last-trade');
+  const ctTrade=trades.filter(x=>x.strategy==='copy_trading').slice(-1)[0];
+  if(lastEl)lastEl.textContent=ctTrade?fmtT(ctTrade.logged_at||ctTrade.timestamp):'אין עדיין';
+
+  if(!statsEl)return;
+  if(t===0){
+    statsEl.innerHTML=`<div style="color:var(--text4)">אין עסקאות עדיין — Copy Trading ממתין לאות ממובילי הלידרבורד.</div>
+    <div style="margin-top:12px;font-size:12px;color:var(--text4)">
+      <strong style="color:var(--text2)">מה קורה ברקע:</strong><br>
+      1. Polymarket מביא Leaderboard (top 50 ארנקים)<br>
+      2. מחשב win_rate על 30 הימים האחרונים (סף: 44% / 16 עסקות)<br>
+      3. עוקב אחרי פוזיציות פתוחות של 10 הארנקים המובילים<br>
+      4. כשנמצאת פוזיציה תואמת בשוק שלנו — מעתיק
+    </div>`;
+  } else {
+    statsEl.innerHTML=`<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;padding-bottom:12px;border-bottom:1px solid #1d1d24;margin-bottom:12px">
+      <div><div style="font-size:10px;color:var(--text4);margin-bottom:4px">עסקאות</div><div style="font-size:28px;font-weight:700;color:var(--text)">${t}</div></div>
+      <div><div style="font-size:10px;color:var(--text4);margin-bottom:4px">הצלחה</div><div style="font-size:28px;font-weight:700;color:${parseFloat(wr)>=50?'var(--green)':'var(--red)'}">${wr}</div></div>
+      <div><div style="font-size:10px;color:var(--text4);margin-bottom:4px">ניצחונות</div><div style="font-size:28px;font-weight:700;color:var(--green)">${w}</div></div>
+      <div><div style="font-size:10px;color:var(--text4);margin-bottom:4px">PnL</div><div style="font-size:28px;font-weight:700;color:${pnl>=0?'var(--green)':'var(--red)'}">${sgn(pnl)}$${Math.abs(pnl).toFixed(4)}</div></div>
+    </div>
+    ${trades.filter(x=>x.strategy==='copy_trading').slice(0,5).map(t=>`<div style="font-size:12px;padding:6px 0;border-bottom:1px solid #1d1d24;color:var(--text3)">
+      ${fmtT(t.logged_at)} · ${(t.market_question||'').substring(0,60)} · ${t.side} @${f(t.price)} · PnL: ${t.pnl!=null?((t.pnl>=0?'+':'')+'$'+f(t.pnl,4)):'פתוח'}
+    </div>`).join('')}`;
   }
 }
 
@@ -1788,12 +1964,13 @@ let _pl=-1;
 async function refresh(){
   if(!_authToken)return;
   try{
-    const [sr,tr,pr,rr,hr,ar,kr,cr,dr]=await Promise.all([
+    const [sr,tr,pr,rr,hr,ar,kr,cr,dr,psr]=await Promise.all([
       authFetch('/api/status'),authFetch('/api/trades'),authFetch('/api/positions'),
       authFetch('/api/rejections'),authFetch('/api/pnl-history'),authFetch('/api/activity'),
       authFetch('/api/platforms/kalshi').catch(()=>null),
       authFetch('/api/platforms/crypto').catch(()=>null),
       authFetch('/api/detective').catch(()=>null),
+      authFetch('/api/platform-summary').catch(()=>null),
     ]);
     const s=await sr.json(),trades=await tr.json(),positions=await pr.json();
     const rejs=await rr.json(),history=await hr.json(),activity=await ar.json();
@@ -1843,6 +2020,10 @@ async function refresh(){
     if(kr){try{updateKalshi(await kr.json());}catch{}}
     if(cr){try{updateCrypto(await cr.json());}catch{}}
     if(dr){try{updateDetective(await dr.json());}catch{}}
+    if(psr){try{updatePlatformSummary(await psr.json());}catch{}}
+
+    // ── Copy trading status
+    updateCopyTradingStatus(s,trades);
 
     // ── Footer
     const fd=document.getElementById('foot-dot'),fm=document.getElementById('foot-msg');
