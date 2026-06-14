@@ -20,25 +20,27 @@ STOP_LOSS_PCT = 0.15
 DAILY_DRAWDOWN_LIMIT = 0.08
 MIN_LIQUIDITY = 500.0
 
-# ── Entry thresholds (loosened 2026-06-14) ───────────────────────────────────
+# ── Entry thresholds (reverted to conservative on 2026-06-14) ───────────────
+# Lesson learned: loosened thresholds ($18→$10.61, 0% win rate) — quality > quantity
+#
 # Strategy 1 — Near Resolution
 NEAR_RESOLUTION_WINDOW_MIN = 5
 NEAR_RESOLUTION_MAX_PRICE = 0.98
-NEAR_RESOLUTION_MIN_EDGE = 0.005        # was 0.015
+NEAR_RESOLUTION_MIN_EDGE = 0.015
 
 # Strategy 2 & 3 — Pure / Directional Arbitrage
-ARBITRAGE_MAX_SUM = 0.995               # was 0.98
-ARBITRAGE_MIN_EDGE = 0.001              # secondary noise guard
+ARBITRAGE_MAX_SUM = 0.98
+ARBITRAGE_MIN_EDGE = 0.001              # secondary noise guard (keep)
 
 # Strategy 4 — Repricing / Fair Value
-REPRICING_MIN_DEVIATION = 0.01         # was 0.02
+REPRICING_MIN_DEVIATION = 0.02
 
 # Strategy 5 — Cross Timeframe
-CROSS_TIMEFRAME_MIN_DIVERGENCE = 0.015 # was 0.03
+CROSS_TIMEFRAME_MIN_DIVERGENCE = 0.03
 
 # Strategy 6 — Copy Trading
-COPY_TRADING_MIN_WIN_RATE = 0.44       # was 0.55  (×0.8)
-COPY_TRADING_MIN_TRADES = 16           # was 20    (×0.8)
+COPY_TRADING_MIN_WIN_RATE = 0.55
+COPY_TRADING_MIN_TRADES = 20
 
 # ── Hedge ────────────────────────────────────────────────────────────────────
 HEDGE_PCT = 0.15

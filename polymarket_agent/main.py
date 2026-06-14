@@ -9,10 +9,28 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from agent.core import AgentCore
 from logger.trade_logger import TradeLogger
 from logger import rejected_logger
+from platforms import kalshi_sim, crypto_arb_sim
 import config
 
 _agent: AgentCore = None
 _logger: TradeLogger = None
+
+
+async def _platform_loop():
+    """Background loop scanning Kalshi + crypto arb every 60s."""
+    while True:
+        try:
+            markets = []
+            if _agent:
+                markets = await _agent.market_data.fetch_active_markets()
+            await asyncio.gather(
+                kalshi_sim.scan(markets),
+                crypto_arb_sim.scan(),
+                return_exceptions=True,
+            )
+        except Exception as exc:
+            print(f"[PLATFORMS] {exc}")
+        await asyncio.sleep(60)
 
 
 @asynccontextmanager
@@ -21,12 +39,15 @@ async def lifespan(app: FastAPI):
     _logger = TradeLogger()
     _agent = AgentCore(_logger)
     task = asyncio.create_task(_agent.run_loop())
+    plat_task = asyncio.create_task(_platform_loop())
     yield
     task.cancel()
-    try:
-        await task
-    except asyncio.CancelledError:
-        pass
+    plat_task.cancel()
+    for t in (task, plat_task):
+        try:
+            await t
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(title="Polymarket Trading Agent", lifespan=lifespan)
@@ -75,6 +96,16 @@ async def api_activity():
     if _agent is None:
         return JSONResponse([])
     return JSONResponse(_agent.get_activity(150))
+
+
+@app.get("/api/platforms/kalshi")
+async def api_kalshi():
+    return JSONResponse(kalshi_sim.get_status())
+
+
+@app.get("/api/platforms/crypto")
+async def api_crypto():
+    return JSONResponse(crypto_arb_sim.get_status())
 
 
 @app.post("/golive")
