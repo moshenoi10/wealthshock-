@@ -86,6 +86,37 @@ class MarketDataFetcher:
 
         return markets
 
+    async def fetch_near_resolution_markets(self) -> List[dict]:
+        """
+        Separate fetch for near-resolution strategy.
+
+        Sorted by endDate ASC (soonest closing first) with no liquidity floor and
+        no enableOrderBook requirement, so markets that are almost resolved but have
+        stopped accepting new orders are still included.
+        """
+        markets: List[dict] = []
+        try:
+            resp = await self._client.get(
+                f"{GAMMA_HOST}/markets",
+                params={
+                    "active":     "true",
+                    "closed":     "false",
+                    "limit":      200,
+                    "order":      "endDate",
+                    "ascending":  "true",
+                },
+            )
+            resp.raise_for_status()
+            batch = resp.json()
+            if not isinstance(batch, list):
+                batch = batch.get("data", [])
+            for raw in batch:
+                m = _normalize(raw)
+                markets.append(m)
+        except Exception as exc:
+            print(f"[MARKET-NR] Fetch error: {exc}")
+        return markets
+
     async def get_price_history(
         self, token_id: str, interval: str = "5m", fidelity: int = 5
     ) -> List[dict]:

@@ -23,7 +23,7 @@ from auth.rate_limiter import check as rl_check, clear as rl_clear, record_failu
 from auth.tokens import create_token, revoke_token
 from logger.trade_logger import TradeLogger
 from logger import rejected_logger
-from platforms import kalshi_sim, crypto_arb_sim, detective, btc_lag_arb
+from platforms import kalshi_sim, crypto_arb_sim, detective, btc_lag_arb, market_maker_sim
 import config
 
 _agent: AgentCore = None
@@ -55,6 +55,15 @@ async def _btc_lag_loop():
         except Exception as exc:
             print(f"[BTC-LAG LOOP] {exc}")
         await asyncio.sleep(10)
+
+
+async def _market_maker_loop():
+    while True:
+        try:
+            await market_maker_sim.scan()
+        except Exception as exc:
+            print(f"[MM LOOP] {exc}")
+        await asyncio.sleep(30)
 
 
 async def _detective_loop():
@@ -112,6 +121,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(_detective_loop()),
         asyncio.create_task(_exploit_monitor_loop()),
         asyncio.create_task(_btc_lag_loop()),
+        asyncio.create_task(_market_maker_loop()),
     ]
     yield
     for t in tasks:
@@ -311,6 +321,11 @@ async def api_btc_lag(_: dict = _auth_viewer):
     return JSONResponse(btc_lag_arb.get_status())
 
 
+@app.get("/api/market-maker")
+async def api_market_maker(_: dict = _auth_viewer):
+    return JSONResponse(market_maker_sim.get_status())
+
+
 @app.get("/api/platform-summary")
 async def api_platform_summary(_: dict = _auth_viewer):
     """Combined stats across all 3 platforms for the unified header row."""
@@ -320,6 +335,7 @@ async def api_platform_summary(_: dict = _auth_viewer):
     ks = kalshi_sim.get_status()
     cs = crypto_arb_sim.get_status()
     bs = btc_lag_arb.get_status()
+    ms = market_maker_sim.get_status()
 
     k_balance = ks.get("balance", kalshi_sim.INITIAL_BALANCE)
     k_pnl     = ks.get("total_pnl", 0.0)
@@ -327,9 +343,11 @@ async def api_platform_summary(_: dict = _auth_viewer):
     c_pnl     = cs.get("total_pnl", 0.0)
     b_balance = bs.get("balance", btc_lag_arb.INITIAL_BALANCE)
     b_pnl     = bs.get("total_pnl", 0.0)
+    m_balance = ms.get("balance", market_maker_sim.INITIAL_BALANCE)
+    m_pnl     = ms.get("total_pnl", 0.0)
 
-    combined_balance = round(poly_balance + k_balance + c_balance + b_balance, 2)
-    combined_pnl     = round(poly_pnl    + k_pnl     + c_pnl     + b_pnl,     2)
+    combined_balance = round(poly_balance + k_balance + c_balance + b_balance + m_balance, 2)
+    combined_pnl     = round(poly_pnl    + k_pnl     + c_pnl     + b_pnl     + m_pnl,     2)
 
     # Per-platform health signal
     def _health(pnl, trades):
@@ -372,7 +390,38 @@ async def api_platform_summary(_: dict = _auth_viewer):
                 "btc_price": bs.get("btc_price"),
                 "open_positions": len(bs.get("open_positions", [])),
             },
+            "market_maker": {
+                "balance":        round(m_balance, 2),
+                "pnl":            round(m_pnl, 4),
+                "trades":         ms.get("trades", 0),
+                "health":         _health(m_pnl, ms.get("trades", 0)),
+                "open_positions": len(ms.get("open_positions", [])),
+                "best_spread":    ms.get("scan_log", [{}])[0].get("best_spread", 0) if ms.get("scan_log") else 0,
+            },
         },
+    })
+
+
+@app.get("/api/debug/near-resolution")
+async def api_nr_debug(_: dict = _auth_viewer):
+    """Per-market scan log for near-resolution strategy."""
+    from strategies import near_resolution
+    return JSONResponse(near_resolution.get_debug())
+
+
+@app.get("/api/debug/btc-lag")
+async def api_btc_lag_debug(_: dict = _auth_viewer):
+    """Detailed scan log for BTC lag arb including per-market expected vs actual prices."""
+    status = btc_lag_arb.get_status()
+    return JSONResponse({
+        "btc_price":     status.get("btc_price"),
+        "markets_tracked": status.get("markets_tracked"),
+        "scan_count":    status.get("scan_count"),
+        "last_scan":     status.get("last_scan"),
+        "max_end_hours": btc_lag_arb.MAX_END_DATE_HOURS,
+        "min_lag_pct":   btc_lag_arb.MIN_LAG_PCT * 100,
+        "scan_log":      status.get("scan_log", []),
+        "opportunities": status.get("opportunities", []),
     })
 
 

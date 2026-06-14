@@ -754,6 +754,7 @@ tbody tr:hover td{background:rgba(255,255,255,0.025)}
   <div class="tab" data-tab="crypto">ארביטראז׳ קריפטו · הדמיה</div>
   <div class="tab" data-tab="detective">🔍 בלש · ניתוח</div>
   <div class="tab" data-tab="btc">₿ BTC Lag Arb · הדמיה</div>
+  <div class="tab" data-tab="mm">⚡ Market Maker · הדמיה</div>
 </div>
 
 <!-- ═══ PAGE BODY ════════════════════════════════════════════════ -->
@@ -766,8 +767,8 @@ tbody tr:hover td{background:rgba(255,255,255,0.025)}
   <div style="background:rgba(255,204,0,.05);border:1px solid rgba(255,204,0,.25);border-radius:2px;padding:12px 20px;display:flex;align-items:center;gap:14px">
     <span style="font-size:18px">⚠️</span>
     <div>
-      <div style="font-size:12px;font-weight:700;color:var(--yellow);letter-spacing:1px">Copy Trading בלבד — 5 אסטרטגיות הושבתו</div>
-      <div style="font-size:11px;color:var(--text4);margin-top:3px">NR · PA · DA · RP · CT מושבתות. רק העתקת עסקאות פעילה. מעקב 24 שעות, לאחר מכן החלטה.</div>
+      <div style="font-size:12px;font-weight:700;color:var(--yellow);letter-spacing:1px">Near-Resolution פעיל — חלון 10 דקות · תקרת מחיר 0.95</div>
+      <div style="font-size:11px;color:var(--text4);margin-top:3px">כל שאר האסטרטגיות מושבתות. Copy Trading מושבת (אין אותות וייל). שלב ניסויי.</div>
     </div>
     <div style="margin-right:auto;text-align:left">
       <div style="font-size:10px;color:var(--text4)">ארנקים במעקב</div>
@@ -916,6 +917,22 @@ tbody tr:hover td{background:rgba(255,255,255,0.025)}
           </tbody>
         </table>
       </div>
+    </div>
+  </div>
+
+  <!-- NR DEBUG PANEL -->
+  <div class="card" style="margin-top:16px">
+    <div class="card-title" style="display:flex;align-items:center;justify-content:space-between">
+      <span>Near-Resolution · לוג סריקה חי</span>
+      <span id="nr-summary" style="font-size:11px;color:var(--text4);font-weight:400"></span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin:10px 0;font-size:11px">
+      <div>חלון: <b style="color:var(--green)" id="nr-window">—</b> דקות</div>
+      <div>תקרת מחיר: <b style="color:var(--green)" id="nr-max-price">—</b></div>
+      <div>סריקה אחרונה: <b style="color:var(--text3)" id="nr-last-scan">—</b></div>
+    </div>
+    <div id="nr-eval-log" style="font-family:'SF Mono','Courier New',monospace;font-size:10px;color:var(--text4);max-height:280px;overflow-y:auto;padding-top:4px;line-height:1.8">
+      ממתין לסריקה...
     </div>
   </div>
 
@@ -1287,6 +1304,82 @@ tbody tr:hover td{background:rgba(255,255,255,0.025)}
     <div id="btc-scan-log" style="font-family:'SF Mono','Courier New',monospace;font-size:11px;color:var(--text4);padding-top:6px;line-height:1.7">
       ממתין לסריקה...
     </div>
+  </div>
+
+</div>
+</div>
+
+<!-- ─── TAB: MARKET MAKER ──────────────────────────────────────── -->
+<div class="tab-panel" id="tab-mm">
+<div class="page">
+
+  <!-- Header -->
+  <div style="background:rgba(100,200,100,.05);border:1px solid rgba(100,200,100,.25);border-radius:2px;padding:12px 20px;display:flex;align-items:center;gap:14px;margin-bottom:20px">
+    <span style="font-size:20px">⚡</span>
+    <div>
+      <div style="font-size:12px;font-weight:700;color:var(--green);letter-spacing:1px">MARKET MAKER — הדמיה בלבד · ממרח של YES+NO</div>
+      <div style="font-size:11px;color:var(--text4);margin-top:2px">
+        קונה YES ו-NO כשסכומם &lt;0.96. אחד תמיד מרוויח $1. פרמיה: ≥4%. מאזן: $500.
+      </div>
+    </div>
+    <div style="margin-right:auto;text-align:left">
+      <div style="font-size:10px;color:var(--text4)">ממרח מקסימלי שנמצא</div>
+      <div style="font-size:20px;font-weight:700;font-family:'SF Mono','Courier New',monospace;color:var(--green)" id="mm-best-spread">—%</div>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="metrics" style="margin-bottom:20px">
+    <div class="mc"><div class="mc-lbl">מאזן</div><div class="mc-val w" id="mm-balance">$500.00</div></div>
+    <div class="mc"><div class="mc-lbl">רווח/הפסד</div><div class="mc-val" id="mm-pnl">$0.0000</div></div>
+    <div class="mc"><div class="mc-lbl">עסקאות</div><div class="mc-val w" id="mm-trades">0</div></div>
+    <div class="mc"><div class="mc-lbl">% ניצחון</div><div class="mc-val w" id="mm-winrate">—</div></div>
+    <div class="mc"><div class="mc-lbl">פוזיציות</div><div class="mc-val w" id="mm-open-pos">0</div></div>
+    <div class="mc"><div class="mc-lbl">שווקים שנסרקו</div><div class="mc-val w" id="mm-markets">0</div></div>
+    <div class="mc"><div class="mc-lbl">סריקות</div><div class="mc-val w" id="mm-scans">0</div></div>
+    <div class="mc"><div class="mc-lbl">סריקה אחרונה</div><div class="mc-val w3" id="mm-last-scan">—</div></div>
+  </div>
+
+  <!-- Two columns -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+    <div class="card">
+      <div class="card-title">הזדמנויות (ממרח ≥4%)</div>
+      <div id="mm-opps-body" style="font-size:11px;color:var(--text4);padding-top:8px">ממתין...</div>
+    </div>
+    <div class="card">
+      <div class="card-title">פוזיציות פתוחות</div>
+      <div id="mm-positions-body" style="font-size:11px;color:var(--text4);padding-top:8px">אין פוזיציות</div>
+    </div>
+  </div>
+
+  <!-- Trades table -->
+  <div class="card">
+    <div class="card-title">עסקאות שנסגרו</div>
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:11px">
+        <thead>
+          <tr style="color:var(--text4);border-bottom:1px solid var(--border)">
+            <th style="padding:6px 8px;text-align:right;font-weight:600">שאלה</th>
+            <th style="padding:6px 8px;text-align:center;font-weight:600">YES נכנס</th>
+            <th style="padding:6px 8px;text-align:center;font-weight:600">NO נכנס</th>
+            <th style="padding:6px 8px;text-align:center;font-weight:600">ממרח%</th>
+            <th style="padding:6px 8px;text-align:center;font-weight:600">YES יצא</th>
+            <th style="padding:6px 8px;text-align:center;font-weight:600">NO יצא</th>
+            <th style="padding:6px 8px;text-align:center;font-weight:600">סיבה</th>
+            <th style="padding:6px 8px;text-align:left;font-weight:600">רווח/הפסד</th>
+          </tr>
+        </thead>
+        <tbody id="mm-trades-body">
+          <tr><td colspan="8" style="text-align:center;color:var(--text4);padding:20px">אין עסקאות עדיין</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Scan log -->
+  <div class="card" style="margin-top:16px">
+    <div class="card-title">לוג סריקות</div>
+    <div id="mm-scan-log" style="font-family:'SF Mono','Courier New',monospace;font-size:11px;color:var(--text4);padding-top:6px;line-height:1.7">ממתין...</div>
   </div>
 
 </div>
@@ -2127,6 +2220,132 @@ async function delUser(id,name){
 }
 
 // ═══════════════════════════════════════════════════════════════
+//   NEAR-RESOLUTION DEBUG
+// ═══════════════════════════════════════════════════════════════
+function updateNrDebug(d){
+  if(!d)return;
+  document.getElementById('nr-window').textContent=d.window_min||'—';
+  document.getElementById('nr-max-price').textContent=d.max_price||'—';
+  if(d.last_scan_ts){
+    try{
+      const t=new Date(d.last_scan_ts);
+      document.getElementById('nr-last-scan').textContent=t.toLocaleTimeString('he-IL');
+    }catch{}
+  }
+  const sumLog=d.summary_log||[];
+  const last=sumLog[0]||{};
+  document.getElementById('nr-summary').textContent=
+    `סה"כ שווקים: ${last.markets||0} | מוערכים: ${last.evaluated||0} | הופעל: ${last.triggered||0}`;
+
+  const evals=d.recent_evals||[];
+  const el=document.getElementById('nr-eval-log');
+  if(evals.length===0){el.innerHTML='ממתין לסריקה...';return;}
+
+  const reasonColor=(r)=>{
+    if(!r)return 'var(--text4)';
+    if(r.startsWith('TRIGGERED'))return 'var(--green)';
+    if(r.startsWith('too_far'))return 'var(--text4)';
+    if(r.includes('price_already'))return '#666';
+    if(r.includes('ev_too_low'))return 'var(--yellow)';
+    if(r.startsWith('no_'))return '#444';
+    return 'var(--text3)';
+  };
+
+  el.innerHTML=evals.slice(0,30).map(e=>{
+    const minLeft=e.min_left!=null?`${e.min_left}דק׳`:'—';
+    const price=e.price!=null?` @${e.price}`:'';
+    const ev=e.ev!=null?` ev=${e.ev}`:'';
+    return `<div style="border-bottom:1px solid #111;padding:2px 0">
+      <span style="color:var(--text4);margin-left:6px">[${(e.ts||'').slice(11,19)}]</span>
+      <span style="color:${reasonColor(e.reason)}">[${e.reason||'—'}]</span>
+      <span style="color:var(--text3)"> ${minLeft}${price}${ev} — ${e.q||''}</span>
+    </div>`;
+  }).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════
+//   MARKET MAKER / BUNDLE ARB
+// ═══════════════════════════════════════════════════════════════
+function updateMarketMaker(d){
+  if(!d)return;
+  const pnl=d.total_pnl||0,tot=d.trades||0,wr=d.win_rate||0;
+  document.getElementById('mm-balance').textContent='$'+(d.balance||500).toFixed(2);
+  const pe=document.getElementById('mm-pnl');
+  pe.textContent=(pnl>=0?'+':'')+pnl.toFixed(4);
+  pe.className='mc-val '+(pnl>0?'g':pnl<0?'r':'w');
+  document.getElementById('mm-trades').textContent=tot;
+  document.getElementById('mm-winrate').textContent=tot?Math.round(wr*100)+'%':'—';
+  document.getElementById('mm-open-pos').textContent=(d.open_positions||[]).length;
+  document.getElementById('mm-markets').textContent=d.markets_checked||0;
+  document.getElementById('mm-scans').textContent=d.scan_count||0;
+  if(d.last_scan){try{const t=new Date(d.last_scan);document.getElementById('mm-last-scan').textContent=t.toLocaleTimeString('he-IL');}catch{}}
+
+  const log=d.scan_log||[];
+  const bestSpread=log[0]?.best_spread||0;
+  document.getElementById('mm-best-spread').textContent=bestSpread?bestSpread.toFixed(2)+'%':'—%';
+
+  // Opportunities
+  const ob=document.getElementById('mm-opps-body');
+  if(!(d.opportunities||[]).length){
+    ob.innerHTML='<div style="color:var(--text4)">אין ממרח ≥4% כרגע</div>';
+  }else{
+    ob.innerHTML=(d.opportunities||[]).map(o=>`
+      <div style="border-bottom:1px solid var(--border);padding:6px 0">
+        <div style="color:var(--text2);font-size:11px">${o.question}</div>
+        <div style="display:flex;gap:12px;font-size:10px;margin-top:3px">
+          <span>YES: <b>${o.yes_price}</b></span>
+          <span>NO: <b>${o.no_price}</b></span>
+          <span>סכום: <b>${o.sum}</b></span>
+          <span>ממרח: <b style="color:var(--green)">${o.spread_pct}%</b></span>
+          <span>נזילות: <b>$${Math.round(o.liquidity)}</b></span>
+        </div>
+      </div>`).join('');
+  }
+
+  // Open positions
+  const pb=document.getElementById('mm-positions-body');
+  if(!(d.open_positions||[]).length){
+    pb.innerHTML='<div style="color:var(--text4)">אין פוזיציות פתוחות</div>';
+  }else{
+    pb.innerHTML=(d.open_positions||[]).map(p=>`
+      <div style="border-bottom:1px solid var(--border);padding:6px 0">
+        <div style="color:var(--text2);font-size:11px">${p.question}</div>
+        <div style="display:flex;gap:12px;font-size:10px;margin-top:3px">
+          <span>YES: <b>${p.yes_entry}</b></span>
+          <span>NO: <b>${p.no_entry}</b></span>
+          <span>ממרח: <b style="color:var(--green)">${p.spread_pct}%</b></span>
+          <span>עלות: <b>$${p.total_cost}</b></span>
+          <span>זמן: <b>${p.held_min}דק׳</b></span>
+        </div>
+      </div>`).join('');
+  }
+
+  // Trades
+  const tb=document.getElementById('mm-trades-body');
+  if(!(d.sim_trades||[]).length){
+    tb.innerHTML='<tr><td colspan="8" style="text-align:center;color:var(--text4);padding:20px">אין עסקאות עדיין</td></tr>';
+  }else{
+    tb.innerHTML=(d.sim_trades||[]).map(t=>`
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:5px 8px;color:var(--text3);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.question}</td>
+        <td style="padding:5px 8px;text-align:center">${t.yes_entry}</td>
+        <td style="padding:5px 8px;text-align:center">${t.no_entry}</td>
+        <td style="padding:5px 8px;text-align:center;color:var(--green)">${t.spread_pct}%</td>
+        <td style="padding:5px 8px;text-align:center">${t.yes_exit}</td>
+        <td style="padding:5px 8px;text-align:center">${t.no_exit}</td>
+        <td style="padding:5px 8px;text-align:center;font-size:10px;color:var(--text4)">${t.exit_reason||'—'}</td>
+        <td style="padding:5px 8px;text-align:left;color:${(t.pnl||0)>=0?'var(--green)':'var(--red)'};font-weight:600">${((t.pnl||0)>=0?'+':'')+(t.pnl||0).toFixed(4)}</td>
+      </tr>`).join('');
+  }
+
+  // Scan log
+  const sl=document.getElementById('mm-scan-log');
+  if(!(d.scan_log||[]).length){sl.textContent='ממתין...';}
+  else{sl.innerHTML=(d.scan_log||[]).map(r=>`
+    <div>[#${r.scan}] mkts=${r.markets} opps=${r.opps} pos=${r.positions} best_spread=${r.best_spread}%</div>`).join('');}
+}
+
+// ═══════════════════════════════════════════════════════════════
 //   BTC LAG ARB
 // ═══════════════════════════════════════════════════════════════
 function updateBtcLag(d){
@@ -2223,7 +2442,7 @@ let _pl=-1;
 async function refresh(){
   if(!_authToken)return;
   try{
-    const [sr,tr,pr,rr,hr,ar,kr,cr,dr,psr,br]=await Promise.all([
+    const [sr,tr,pr,rr,hr,ar,kr,cr,dr,psr,br,nrr,mmr]=await Promise.all([
       authFetch('/api/status'),authFetch('/api/trades'),authFetch('/api/positions'),
       authFetch('/api/rejections'),authFetch('/api/pnl-history'),authFetch('/api/activity'),
       authFetch('/api/platforms/kalshi').catch(()=>null),
@@ -2231,6 +2450,8 @@ async function refresh(){
       authFetch('/api/detective').catch(()=>null),
       authFetch('/api/platform-summary').catch(()=>null),
       authFetch('/api/btc-lag').catch(()=>null),
+      authFetch('/api/debug/near-resolution').catch(()=>null),
+      authFetch('/api/market-maker').catch(()=>null),
     ]);
     const s=await sr.json(),trades=await tr.json(),positions=await pr.json();
     const rejs=await rr.json(),history=await hr.json(),activity=await ar.json();
@@ -2282,6 +2503,8 @@ async function refresh(){
     if(dr){try{updateDetective(await dr.json());}catch{}}
     if(psr){try{updatePlatformSummary(await psr.json());}catch{}}
     if(br){try{updateBtcLag(await br.json());}catch{}}
+    if(nrr){try{updateNrDebug(await nrr.json());}catch{}}
+    if(mmr){try{updateMarketMaker(await mmr.json());}catch{}}
 
     // ── Copy trading status
     updateCopyTradingStatus(s,trades);

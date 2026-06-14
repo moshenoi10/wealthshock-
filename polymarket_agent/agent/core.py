@@ -94,8 +94,24 @@ class AgentCore:
             print(f"[AGENT] Balance ${self.balance:.2f} < floor ${config.MIN_BALANCE}. Pausing.")
             return
 
-        # Fetch markets
-        markets = await self.market_data.fetch_active_markets()
+        # Fetch markets (main + near-resolution specific)
+        markets, nr_markets = await asyncio.gather(
+            self.market_data.fetch_active_markets(),
+            self.market_data.fetch_near_resolution_markets(),
+            return_exceptions=True,
+        )
+        if isinstance(markets, Exception):
+            markets = []
+        if isinstance(nr_markets, Exception):
+            nr_markets = []
+
+        # Merge NR markets into main list (deduplicated by condition_id)
+        seen_cids = {m.get("condition_id") for m in markets}
+        for m in nr_markets:
+            if m.get("condition_id") not in seen_cids:
+                markets.append(m)
+                seen_cids.add(m.get("condition_id"))
+
         if not markets:
             print(f"[AGENT] #{self.loop_count:04d} — no markets returned")
             return

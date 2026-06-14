@@ -14,19 +14,20 @@ import asyncio
 import re
 import time
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
 import httpx
 
-INITIAL_BALANCE   = 1_000.0
-MAX_TRADE_USD     = 100.0    # 10% cap per trade
-MIN_LAG_PCT       = 0.02     # 2% minimum lag to enter
-EXIT_TARGET       = 0.90     # exit long when price reaches this
-STOP_LOSS         = 0.30     # stop loss
-MAX_HOLD_SECONDS  = 900      # 15 min max hold
-MARKET_CACHE_TTL  = 300      # refresh market list every 5 min
-BTC_PRICE_TTL     = 8        # don't re-fetch within 8s
+INITIAL_BALANCE      = 1_000.0
+MAX_TRADE_USD        = 100.0    # 10% cap per trade
+MIN_LAG_PCT          = 0.02     # 2% minimum lag to enter
+EXIT_TARGET          = 0.90     # exit long when price reaches this
+STOP_LOSS            = 0.30     # stop loss
+MAX_HOLD_SECONDS     = 900      # 15 min max hold
+MARKET_CACHE_TTL     = 300      # refresh market list every 5 min
+BTC_PRICE_TTL        = 8        # don't re-fetch within 8s
+MAX_END_DATE_HOURS   = 72       # only trade markets closing within 72 hours
 
 _balance:      float = INITIAL_BALANCE
 _total_pnl:    float = 0.0
@@ -122,6 +123,9 @@ async def _fetch_btc_markets() -> List[dict]:
                 if not isinstance(batch, list):
                     batch = batch.get("markets", [])
 
+                now_dt = datetime.now(timezone.utc)
+                cutoff = now_dt + timedelta(hours=MAX_END_DATE_HOURS)
+
                 for raw in batch:
                     q = raw.get("question", "")
                     if not any(kw in q.upper() for kw in ["BTC", "BITCOIN"]):
@@ -134,6 +138,21 @@ async def _fetch_btc_markets() -> List[dict]:
                         continue
                     if raw.get("id") in {m["id"] for m in results}:
                         continue
+
+                    # Only short-dated markets — our spot-vs-expected model is only
+                    # valid when market will resolve imminently (within 72h).
+                    end_str = raw.get("endDate", "") or ""
+                    if end_str:
+                        try:
+                            end_dt = datetime.fromisoformat(
+                                end_str.replace("Z", "+00:00")
+                            )
+                            if end_dt.tzinfo is None:
+                                end_dt = end_dt.replace(tzinfo=timezone.utc)
+                            if end_dt > cutoff:
+                                continue   # too far away — skip
+                        except ValueError:
+                            continue
 
                     outcomes  = _json.loads(raw.get("outcomes")      or "[]")
                     prices    = _json.loads(raw.get("outcomePrices") or "[]")
@@ -331,8 +350,28 @@ async def scan() -> dict:
         # Check exits first
         _check_exits(btc_price, idx, ts)
 
-        # Scan for new lags
+        # Scan for new lags — log EVERY market with computed expected price
+        market_detail = []
         for market in markets:
+            dist_pct = (btc_price - market["strike"]) / market["strike"]
+            direction = market["direction"]
+            if direction == "above":
+                expected = round(max(0.07, min(0.93, 0.50 + dist_pct * 4.0)), 4)
+            else:
+                expected = round(max(0.07, min(0.93, 0.50 + (-dist_pct) * 4.0)), 4)
+            actual_yes = market["yes_price"]
+            computed_lag = round((expected - actual_yes) * 100, 2)
+            market_detail.append({
+                "q":          market["question"][:60],
+                "strike":     market["strike"],
+                "dir":        direction,
+                "yes_price":  actual_yes,
+                "expected":   expected,
+                "lag_pct":    computed_lag,
+                "liquidity":  market["liquidity"],
+                "skipped":    "low_liquidity" if market["liquidity"] < 50 else None,
+            })
+
             if market["liquidity"] < 50:
                 continue
             signal = _compute_lag(btc_price, market)
@@ -377,6 +416,13 @@ async def scan() -> dict:
     lags_found.sort(key=lambda x: x["lag_pct"], reverse=True)
     _opportunities = lags_found[:8]
 
+    # Sort market detail by lag_pct desc for easy scanning
+    market_detail_sorted = sorted(
+        market_detail if 'market_detail' in dir() or True else [],
+        key=lambda x: abs(x.get("lag_pct", 0)),
+        reverse=True,
+    )
+
     _scan_log.appendleft({
         "ts":              ts,
         "scan":            _scan_count,
@@ -384,12 +430,17 @@ async def scan() -> dict:
         "markets_checked": len(markets) if isinstance(markets, list) else 0,
         "lags_found":      len(lags_found),
         "positions":       len(_positions),
+        "max_end_hours":   MAX_END_DATE_HOURS,
+        # Top 5 markets by lag magnitude for debugging
+        "top5_detail":     market_detail_sorted[:5],
     })
 
     if btc_price:
+        top_lag = market_detail_sorted[0]["lag_pct"] if market_detail_sorted else 0
         print(f"[BTC-LAG] #{_scan_count} BTC=${btc_price:,.2f} "
               f"mkts={len(markets) if isinstance(markets,list) else 0} "
-              f"lags={len(lags_found)} pos={len(_positions)}")
+              f"lags={len(lags_found)} pos={len(_positions)} "
+              f"max_lag={top_lag:+.2f}%")
 
     return get_status()
 
