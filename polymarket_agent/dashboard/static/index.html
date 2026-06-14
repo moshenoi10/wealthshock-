@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Polymarket · טרמינל מסחר</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&family=Noto+Sans+Hebrew:wght@400;600;700;800;900&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
 /* ─────────────────────────────────────────────────────────────
@@ -39,7 +42,7 @@
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{height:100%}
 body{
-  font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','Inter',
+  font-family:'Inter','Noto Sans Hebrew',-apple-system,BlinkMacSystemFont,'SF Pro Display',
     'Helvetica Neue',Arial,sans-serif;
   background:var(--bg);
   color:var(--text);
@@ -636,9 +639,194 @@ tbody tr:hover td{background:rgba(255,255,255,0.025)}
          border-radius:var(--r);font-size:12px;font-weight:800;cursor:pointer;font-family:inherit}
 .btn-add:hover{opacity:.85}
 .admin-msg{font-size:12px;color:var(--green);margin-top:10px;min-height:18px}
+
+/* ─────────────────────────────────────────────────────────────
+   AURORA CANVAS (background animation)
+───────────────────────────────────────────────────────────── */
+#aurora{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:1}
+
+/* ─────────────────────────────────────────────────────────────
+   APP LAYOUT — sidebar + main
+───────────────────────────────────────────────────────────── */
+#app-layout{display:flex;flex-direction:row;height:100vh;overflow:hidden;direction:ltr}
+#main-wrap{flex:1;overflow-y:auto;overflow-x:hidden;direction:rtl;position:relative;z-index:1}
+
+/* ─────────────────────────────────────────────────────────────
+   SIDEBAR
+───────────────────────────────────────────────────────────── */
+#sidebar{
+  width:220px;flex-shrink:0;
+  background:rgba(0,0,0,0.88);
+  border-right:1px solid var(--border);
+  backdrop-filter:var(--blur);
+  -webkit-backdrop-filter:var(--blur);
+  display:flex;flex-direction:column;
+  position:relative;z-index:300;
+  transition:width 0.22s cubic-bezier(.4,0,.2,1);
+  overflow:hidden;
+}
+#sidebar.collapsed{width:52px}
+.sb-logo{
+  padding:18px 16px 4px;
+  font-size:15px;font-weight:900;color:var(--green);
+  letter-spacing:3px;text-transform:uppercase;
+  white-space:nowrap;overflow:hidden;
+  text-shadow:0 0 20px rgba(0,255,153,.35);
+  flex-shrink:0;
+}
+#sidebar.collapsed .sb-logo{font-size:0;padding-bottom:0}
+.sb-balance{
+  padding:2px 16px 14px;
+  font-size:11px;color:var(--text4);
+  font-family:'SF Mono','Courier New',monospace;
+  white-space:nowrap;overflow:hidden;
+  flex-shrink:0;
+}
+#sidebar.collapsed .sb-balance{display:none}
+.sb-divider{height:1px;background:var(--border);margin:0 12px 8px;flex-shrink:0}
+.sb-nav{flex:1;display:flex;flex-direction:column;gap:2px;padding:4px 0;overflow-y:auto}
+.sb-item{
+  display:flex;align-items:center;gap:10px;
+  padding:10px 14px;cursor:pointer;
+  color:var(--text4);font-size:11px;font-weight:700;
+  border-left:2px solid transparent;
+  transition:all 0.15s;white-space:nowrap;
+  user-select:none;letter-spacing:.5px;
+}
+.sb-item:hover{color:var(--text2);background:rgba(255,255,255,0.04)}
+.sb-item.active{color:var(--green);border-left-color:var(--green);background:rgba(0,255,153,0.06)}
+.sb-icon{font-size:15px;flex-shrink:0;width:22px;text-align:center}
+.sb-label{flex:1;overflow:hidden;text-overflow:ellipsis;text-transform:uppercase}
+#sidebar.collapsed .sb-label{display:none}
+.sb-sdot{width:6px;height:6px;border-radius:50%;flex-shrink:0;background:var(--text4)}
+.sb-sdot.live{background:var(--green);box-shadow:0 0 6px rgba(0,255,153,.8)}
+#sidebar.collapsed .sb-sdot{display:none}
+.sb-footer{padding:10px 12px;flex-shrink:0}
+.sb-toggle{
+  width:100%;padding:8px 6px;border:1px solid var(--border);
+  background:var(--glass);border-radius:var(--r);
+  color:var(--text4);cursor:pointer;font-size:12px;
+  transition:all 0.2s;text-align:center;font-family:inherit;
+}
+.sb-toggle:hover{color:var(--text);border-color:rgba(255,255,255,.15)}
+.sb-cmd-hint{padding:6px 12px 8px;font-size:9px;color:var(--text4);letter-spacing:1.5px;white-space:nowrap}
+#sidebar.collapsed .sb-cmd-hint{display:none}
+
+/* ─────────────────────────────────────────────────────────────
+   SECTION PANELS (replaces .tab-panel)
+───────────────────────────────────────────────────────────── */
+.section{display:none}
+.section.active{display:block;animation:fadeIn .22s ease}
+
+/* ─────────────────────────────────────────────────────────────
+   COMMAND PALETTE
+───────────────────────────────────────────────────────────── */
+#cmd-backdrop{
+  position:fixed;inset:0;z-index:5000;
+  background:rgba(0,0,0,0.72);
+  backdrop-filter:blur(6px);
+  -webkit-backdrop-filter:blur(6px);
+  display:none;
+}
+#cmd-backdrop.open{display:block}
+#cmd-palette{
+  position:fixed;top:18%;left:50%;transform:translateX(-50%);
+  z-index:5001;width:580px;max-width:calc(100vw - 32px);
+  background:rgba(8,8,12,0.97);
+  border:1px solid rgba(0,255,153,0.22);
+  border-radius:14px;
+  box-shadow:0 40px 100px rgba(0,0,0,.95),0 0 0 1px rgba(255,255,255,0.04) inset;
+  backdrop-filter:blur(40px);
+  -webkit-backdrop-filter:blur(40px);
+  overflow:hidden;
+  display:none;
+}
+#cmd-palette.open{display:block;animation:fadeUp .18s ease}
+.cmd-input-wrap{
+  display:flex;align-items:center;gap:12px;
+  padding:18px 20px;
+  border-bottom:1px solid rgba(255,255,255,0.06);
+}
+.cmd-slash{font-size:20px;color:var(--green);font-weight:900;line-height:1}
+#cmd-input{
+  flex:1;background:none;border:none;outline:none;
+  font-size:16px;color:var(--text);font-family:'Inter','Noto Sans Hebrew',inherit;
+  direction:ltr;text-align:left;
+}
+#cmd-input::placeholder{color:var(--text4)}
+.cmd-esc{
+  font-size:10px;color:var(--text4);
+  background:rgba(255,255,255,0.06);
+  border:1px solid rgba(255,255,255,0.1);
+  padding:3px 9px;border-radius:5px;white-space:nowrap;
+}
+#cmd-results{max-height:380px;overflow-y:auto;padding:6px 0}
+.cmd-item{
+  display:flex;align-items:center;gap:14px;
+  padding:13px 20px;cursor:pointer;
+  border-bottom:1px solid rgba(255,255,255,0.025);
+  transition:background 0.08s;
+}
+.cmd-item:hover,.cmd-item.focused{background:rgba(0,255,153,0.07)}
+.cmd-item-icon{font-size:18px;width:28px;text-align:center;flex-shrink:0}
+.cmd-item-label{font-size:14px;color:var(--text2);flex:1;font-weight:600}
+.cmd-item-meta{font-size:11px;color:var(--text4);direction:rtl}
+.cmd-footer{
+  padding:9px 20px;font-size:10px;color:var(--text4);
+  display:flex;gap:16px;border-top:1px solid rgba(255,255,255,0.04);
+  letter-spacing:.5px;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   DRAGGABLE METRIC CARDS
+───────────────────────────────────────────────────────────── */
+.mc[draggable="true"]{cursor:grab}
+.mc[draggable="true"]:active{cursor:grabbing}
+.mc.drag-over{border-color:rgba(0,255,153,0.5)!important;background:rgba(0,255,153,0.06)!important}
+.mc.dragging{opacity:0.35}
+
+/* ─────────────────────────────────────────────────────────────
+   NEUMORPHIC BUTTONS
+───────────────────────────────────────────────────────────── */
+.btn-neo{
+  padding:7px 16px;
+  background:linear-gradient(145deg,#0c0c0c,#121214);
+  border:1px solid rgba(255,255,255,0.08);
+  border-radius:8px;
+  color:var(--text2);
+  font-family:'Inter','Noto Sans Hebrew',inherit;
+  font-size:11px;font-weight:700;letter-spacing:1px;
+  cursor:pointer;text-transform:uppercase;
+  box-shadow:3px 3px 8px rgba(0,0,0,.7),-1px -1px 4px rgba(255,255,255,0.035);
+  transition:all 0.15s;
+}
+.btn-neo:hover{
+  box-shadow:4px 4px 12px rgba(0,0,0,.8),-2px -2px 6px rgba(255,255,255,0.05);
+  color:var(--text);
+}
+.btn-neo:active{box-shadow:1px 1px 5px rgba(0,0,0,.7) inset;transform:scale(0.98)}
+.btn-neo-green{
+  background:linear-gradient(145deg,rgba(0,180,90,0.12),rgba(0,255,153,0.07));
+  border-color:rgba(0,255,153,0.28);color:var(--green);
+}
+.btn-neo-green:hover{box-shadow:0 0 22px rgba(0,255,153,0.18),3px 3px 8px rgba(0,0,0,.7)}
+
+/* ─────────────────────────────────────────────────────────────
+   DYNAMIC PnL LIGHTING
+───────────────────────────────────────────────────────────── */
+:root{--pnl-hue-r:0;--pnl-hue-g:255;--pnl-hue-b:153}
+body::before{
+  background:
+    radial-gradient(ellipse 80% 60% at 20% -10%,
+      rgba(var(--pnl-hue-r),var(--pnl-hue-g),var(--pnl-hue-b),0.035) 0%,transparent 60%),
+    radial-gradient(ellipse 60% 40% at 80% 110%, rgba(74,144,255,0.03) 0%, transparent 60%);
+  transition:background 3s ease;
+}
 </style>
 </head>
 <body>
+
+<canvas id="aurora"></canvas>
 
 <!-- ═══ LOGIN OVERLAY ══════════════════════════════════════════ -->
 <div id="login-overlay">
@@ -694,6 +882,72 @@ tbody tr:hover td{background:rgba(255,255,255,0.025)}
   </div>
 </div>
 
+<!-- ═══ COMMAND PALETTE ══════════════════════════════════════════ -->
+<div id="cmd-backdrop"></div>
+<div id="cmd-palette">
+  <div class="cmd-input-wrap">
+    <span class="cmd-slash">/</span>
+    <input id="cmd-input" type="text" placeholder="חפש פקודה, מסך, פעולה..." autocomplete="off" spellcheck="false">
+    <span class="cmd-esc">ESC</span>
+  </div>
+  <div id="cmd-results"></div>
+  <div class="cmd-footer">
+    <span>↑↓ ניווט</span>
+    <span>↵ בחר</span>
+    <span>ESC סגור</span>
+    <span style="margin-right:auto;color:var(--green)">⌘K</span>
+  </div>
+</div>
+
+<!-- ═══ APP LAYOUT ═══════════════════════════════════════════════ -->
+<div id="app-layout">
+
+<!-- ═══ SIDEBAR ════════════════════════════════════════════════ -->
+<aside id="sidebar">
+  <div class="sb-logo">PM</div>
+  <div class="sb-balance" id="sb-total-bal">—</div>
+  <div class="sb-divider"></div>
+  <nav class="sb-nav">
+    <div class="sb-item active" data-sec="poly" onclick="navTo('poly')">
+      <span class="sb-icon">◈</span>
+      <span class="sb-label">Polymarket</span>
+      <span class="sb-sdot live"></span>
+    </div>
+    <div class="sb-item" data-sec="kalshi" onclick="navTo('kalshi')">
+      <span class="sb-icon">⚖</span>
+      <span class="sb-label">Kalshi · הדמיה</span>
+      <span class="sb-sdot"></span>
+    </div>
+    <div class="sb-item" data-sec="crypto" onclick="navTo('crypto')">
+      <span class="sb-icon">⇌</span>
+      <span class="sb-label">קריפטו · ארב</span>
+      <span class="sb-sdot"></span>
+    </div>
+    <div class="sb-item" data-sec="detective" onclick="navTo('detective')">
+      <span class="sb-icon">🔍</span>
+      <span class="sb-label">בלש · ניתוח</span>
+      <span class="sb-sdot"></span>
+    </div>
+    <div class="sb-item" data-sec="btc" onclick="navTo('btc')">
+      <span class="sb-icon">₿</span>
+      <span class="sb-label">BTC Lag Arb</span>
+      <span class="sb-sdot"></span>
+    </div>
+    <div class="sb-item" data-sec="mm" onclick="navTo('mm')">
+      <span class="sb-icon">⚡</span>
+      <span class="sb-label">Market Maker</span>
+      <span class="sb-sdot"></span>
+    </div>
+  </nav>
+  <div class="sb-cmd-hint">⌘K — פלטת פקודות</div>
+  <div class="sb-footer">
+    <button class="sb-toggle" onclick="toggleSidebar()">◀</button>
+  </div>
+</aside>
+
+<!-- ═══ MAIN WRAP ═════════════════════════════════════════════ -->
+<div id="main-wrap">
+
 <!-- ═══ HEADER ═══════════════════════════════════════════════════ -->
 <div class="hdr">
   <div>
@@ -747,20 +1001,10 @@ tbody tr:hover td{background:rgba(255,255,255,0.025)}
   <div class="hi"><div class="hi-lbl">בריאות המערכת</div><div class="hi-val" id="h-status">—</div></div>
 </div>
 
-<!-- ═══ PLATFORM TABS ════════════════════════════════════════════ -->
-<div class="tabs">
-  <div class="tab active" data-tab="poly">Polymarket</div>
-  <div class="tab" data-tab="kalshi">Kalshi · הדמיה</div>
-  <div class="tab" data-tab="crypto">ארביטראז׳ קריפטו · הדמיה</div>
-  <div class="tab" data-tab="detective">🔍 בלש · ניתוח</div>
-  <div class="tab" data-tab="btc">₿ BTC Lag Arb · הדמיה</div>
-  <div class="tab" data-tab="mm">⚡ Market Maker · הדמיה</div>
-</div>
-
 <!-- ═══ PAGE BODY ════════════════════════════════════════════════ -->
 
-<!-- ─── TAB: POLYMARKET ──────────────────────────────────────── -->
-<div class="tab-panel active" id="tab-poly">
+<!-- ─── SECTION: POLYMARKET ──────────────────────────────────── -->
+<div class="section active" id="sec-poly">
 <div class="page">
 
   <!-- STATUS NOTICE -->
@@ -937,10 +1181,10 @@ tbody tr:hover td{background:rgba(255,255,255,0.025)}
   </div>
 
 </div><!-- /page poly -->
-</div><!-- /tab poly -->
+</div><!-- /sec-poly -->
 
-<!-- ─── TAB: KALSHI SIM ──────────────────────────────────────── -->
-<div class="tab-panel" id="tab-kalshi">
+<!-- ─── SECTION: KALSHI SIM ──────────────────────────────────── -->
+<div class="section" id="sec-kalshi">
 <div class="page">
 
   <div class="sim-stats">
@@ -1022,8 +1266,8 @@ tbody tr:hover td{background:rgba(255,255,255,0.025)}
 </div>
 </div>
 
-<!-- ─── TAB: CRYPTO ARB SIM ──────────────────────────────────── -->
-<div class="tab-panel" id="tab-crypto">
+<!-- ─── SECTION: CRYPTO ARB SIM ──────────────────────────────── -->
+<div class="section" id="sec-crypto">
 <div class="page">
 
   <div class="sim-stats">
@@ -1100,8 +1344,8 @@ tbody tr:hover td{background:rgba(255,255,255,0.025)}
 </div>
 </div>
 
-<!-- ─── TAB: DETECTIVE MODE ─────────────────────────────────────── -->
-<div class="tab-panel" id="tab-detective">
+<!-- ─── SECTION: DETECTIVE MODE ─────────────────────────────────── -->
+<div class="section" id="sec-detective">
 <div class="page">
 
   <!-- Status row -->
@@ -1200,8 +1444,8 @@ tbody tr:hover td{background:rgba(255,255,255,0.025)}
 </div>
 </div>
 
-<!-- ─── TAB: BTC LAG ARB ──────────────────────────────────────── -->
-<div class="tab-panel" id="tab-btc">
+<!-- ─── SECTION: BTC LAG ARB ──────────────────────────────────── -->
+<div class="section" id="sec-btc">
 <div class="page">
 
   <!-- Header notice -->
@@ -1309,8 +1553,8 @@ tbody tr:hover td{background:rgba(255,255,255,0.025)}
 </div>
 </div>
 
-<!-- ─── TAB: MARKET MAKER ──────────────────────────────────────── -->
-<div class="tab-panel" id="tab-mm">
+<!-- ─── SECTION: MARKET MAKER ──────────────────────────────────── -->
+<div class="section" id="sec-mm">
 <div class="page">
 
   <!-- Header -->
@@ -1394,17 +1638,204 @@ tbody tr:hover td{background:rgba(255,255,255,0.025)}
   <span>Polymarket Agent v3.0 · רענון כל 2.5 שניות · כל הפלטפורמות בהדמיה בלבד</span>
 </div>
 
+</div><!-- /main-wrap -->
+</div><!-- /app-layout -->
+
 <script>
 // ═══════════════════════════════════════════════════════════════
-//   TAB SWITCHING
+//   AURORA ANIMATED BACKGROUND
 // ═══════════════════════════════════════════════════════════════
-document.querySelectorAll('.tab').forEach(t=>{
-  t.addEventListener('click',()=>{
-    document.querySelectorAll('.tab,.tab-panel').forEach(el=>el.classList.remove('active'));
-    t.classList.add('active');
-    document.getElementById('tab-'+t.dataset.tab)?.classList.add('active');
-  });
+const _auroraCanvas=document.getElementById('aurora');
+const _auroraCtx=_auroraCanvas.getContext('2d');
+let _auroraT=0;
+let _auroraRgb=[0,255,153];
+
+function _resizeAurora(){
+  _auroraCanvas.width=window.innerWidth;
+  _auroraCanvas.height=window.innerHeight;
+}
+window.addEventListener('resize',_resizeAurora);
+_resizeAurora();
+
+function _drawAurora(){
+  _auroraT+=0.0025;
+  const W=_auroraCanvas.width,H=_auroraCanvas.height;
+  _auroraCtx.clearRect(0,0,W,H);
+  const [r,g,b]=_auroraRgb;
+  const blobs=[
+    {x:0.18+0.12*Math.sin(_auroraT*0.7),y:0.15+0.08*Math.cos(_auroraT*0.5),s:0.45},
+    {x:0.72+0.15*Math.cos(_auroraT*0.55),y:0.7+0.12*Math.sin(_auroraT*0.4),s:0.35},
+    {x:0.5+0.2*Math.sin(_auroraT*0.9+1.5),y:0.45+0.15*Math.cos(_auroraT*0.65+1),s:0.28},
+  ];
+  for(const bl of blobs){
+    const cx=W*bl.x,cy=H*bl.y,rad=Math.min(W,H)*bl.s;
+    const grd=_auroraCtx.createRadialGradient(cx,cy,0,cx,cy,rad);
+    grd.addColorStop(0,`rgba(${r},${g},${b},0.045)`);
+    grd.addColorStop(0.5,`rgba(${r},${g},${b},0.018)`);
+    grd.addColorStop(1,'transparent');
+    _auroraCtx.fillStyle=grd;
+    _auroraCtx.fillRect(0,0,W,H);
+  }
+  requestAnimationFrame(_drawAurora);
+}
+_drawAurora();
+
+function setAuroraFromPnl(pnl){
+  if(pnl>0.001)_auroraRgb=[0,255,153];
+  else if(pnl<-0.001)_auroraRgb=[255,51,51];
+  else _auroraRgb=[74,144,255];
+  const[r,g,b]=_auroraRgb;
+  document.documentElement.style.setProperty('--pnl-hue-r',r);
+  document.documentElement.style.setProperty('--pnl-hue-g',g);
+  document.documentElement.style.setProperty('--pnl-hue-b',b);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//   SIDEBAR NAVIGATION
+// ═══════════════════════════════════════════════════════════════
+function navTo(sec){
+  document.querySelectorAll('.section').forEach(el=>el.classList.remove('active'));
+  document.querySelectorAll('.sb-item').forEach(el=>el.classList.remove('active'));
+  const target=document.getElementById('sec-'+sec);
+  if(target)target.classList.add('active');
+  const nav=document.querySelector(`.sb-item[data-sec="${sec}"]`);
+  if(nav)nav.classList.add('active');
+  try{localStorage.setItem('pm_active_sec',sec);}catch{}
+}
+
+function toggleSidebar(){
+  const sb=document.getElementById('sidebar');
+  sb.classList.toggle('collapsed');
+  const btn=document.querySelector('.sb-toggle');
+  if(btn)btn.textContent=sb.classList.contains('collapsed')?'▶':'◀';
+  try{localStorage.setItem('pm_sb_collapsed',sb.classList.contains('collapsed'));}catch{}
+}
+
+// Restore sidebar collapse state
+try{
+  if(localStorage.getItem('pm_sb_collapsed')==='true'){
+    document.getElementById('sidebar').classList.add('collapsed');
+    const btn=document.querySelector('.sb-toggle');
+    if(btn)btn.textContent='▶';
+  }
+}catch{}
+
+// Restore last active section
+try{
+  const _lastSec=localStorage.getItem('pm_active_sec')||'poly';
+  navTo(_lastSec);
+}catch{navTo('poly');}
+
+// ═══════════════════════════════════════════════════════════════
+//   COMMAND PALETTE
+// ═══════════════════════════════════════════════════════════════
+const _CMD=[
+  {icon:'◈',label:'Polymarket',meta:'פלטפורמה ראשית',action:()=>navTo('poly')},
+  {icon:'⚖',label:'Kalshi · הדמיה',meta:'ארביטראז׳ בין-פלטפורמה',action:()=>navTo('kalshi')},
+  {icon:'⇌',label:'קריפטו · ארביטראז׳',meta:'הדמיה',action:()=>navTo('crypto')},
+  {icon:'🔍',label:'בלש · ניתוח',meta:'דפוסים וארנקים',action:()=>navTo('detective')},
+  {icon:'₿',label:'BTC Lag Arb',meta:'הדמיה',action:()=>navTo('btc')},
+  {icon:'⚡',label:'Market Maker',meta:'הדמיה',action:()=>navTo('mm')},
+  {icon:'↺',label:'רענון נתונים',meta:'',action:()=>refresh()},
+  {icon:'👥',label:'ניהול משתמשים',meta:'מנהל בלבד',action:()=>openAdmin()},
+  {icon:'⏻',label:'יציאה',meta:'',action:()=>doLogout()},
+];
+let _cmdIdx=0;
+
+function openCmdPalette(){
+  document.getElementById('cmd-backdrop').classList.add('open');
+  document.getElementById('cmd-palette').classList.add('open');
+  const inp=document.getElementById('cmd-input');
+  inp.value='';
+  _renderCmd('');
+  inp.focus();
+}
+function closeCmdPalette(){
+  document.getElementById('cmd-backdrop').classList.remove('open');
+  document.getElementById('cmd-palette').classList.remove('open');
+}
+function _renderCmd(q){
+  const lq=q.toLowerCase();
+  const hits=_CMD.filter(it=>!lq||it.label.toLowerCase().includes(lq)||it.meta.toLowerCase().includes(lq));
+  _cmdIdx=0;
+  document.getElementById('cmd-results').innerHTML=hits.map((it,i)=>{
+    const oi=_CMD.indexOf(it);
+    return`<div class="cmd-item${i===0?' focused':''}" onclick="execCmd(${oi})" data-oidx="${oi}">
+      <span class="cmd-item-icon">${it.icon}</span>
+      <span class="cmd-item-label">${it.label}</span>
+      <span class="cmd-item-meta">${it.meta}</span>
+    </div>`;
+  }).join('');
+}
+function execCmd(idx){_CMD[idx]?.action();closeCmdPalette();}
+
+document.getElementById('cmd-input').addEventListener('input',e=>_renderCmd(e.target.value));
+document.getElementById('cmd-input').addEventListener('keydown',e=>{
+  const items=document.querySelectorAll('#cmd-results .cmd-item');
+  if(e.key==='ArrowDown'){
+    _cmdIdx=Math.min(_cmdIdx+1,items.length-1);
+    items.forEach((el,i)=>el.classList.toggle('focused',i===_cmdIdx));
+    e.preventDefault();
+  }else if(e.key==='ArrowUp'){
+    _cmdIdx=Math.max(_cmdIdx-1,0);
+    items.forEach((el,i)=>el.classList.toggle('focused',i===_cmdIdx));
+    e.preventDefault();
+  }else if(e.key==='Enter'){
+    const focused=items[_cmdIdx];
+    if(focused)execCmd(parseInt(focused.dataset.oidx));
+    e.preventDefault();
+  }else if(e.key==='Escape'){closeCmdPalette();}
 });
+document.getElementById('cmd-backdrop').addEventListener('click',closeCmdPalette);
+document.addEventListener('keydown',e=>{
+  if((e.metaKey||e.ctrlKey)&&e.key==='k'){
+    e.preventDefault();
+    document.getElementById('cmd-palette').classList.contains('open')?closeCmdPalette():openCmdPalette();
+  }
+  if(e.key==='Escape'&&!document.getElementById('login-overlay').style.display!=='none'){
+    closeCmdPalette();
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+//   DRAGGABLE METRIC CARDS
+// ═══════════════════════════════════════════════════════════════
+function initDraggable(){
+  document.querySelectorAll('.metrics').forEach(grid=>{
+    let dragging=null;
+    grid.querySelectorAll('.mc').forEach(card=>{
+      card.setAttribute('draggable','true');
+      card.addEventListener('dragstart',()=>{
+        dragging=card;
+        setTimeout(()=>card.classList.add('dragging'),0);
+      });
+      card.addEventListener('dragend',()=>{
+        card.classList.remove('dragging');
+        dragging=null;
+        _saveCardOrder(grid);
+      });
+      card.addEventListener('dragover',e=>{
+        e.preventDefault();
+        card.classList.add('drag-over');
+        if(dragging&&dragging!==card){
+          const rect=card.getBoundingClientRect();
+          if(e.clientX<rect.left+rect.width/2)grid.insertBefore(dragging,card);
+          else grid.insertBefore(dragging,card.nextSibling);
+        }
+      });
+      card.addEventListener('dragleave',()=>card.classList.remove('drag-over'));
+      card.addEventListener('drop',e=>{e.preventDefault();card.classList.remove('drag-over');});
+    });
+  });
+}
+function _saveCardOrder(grid){
+  try{
+    const key='pm_cards_'+grid.id;
+    const ids=[...grid.querySelectorAll('.mc')].map(c=>c.dataset.widget||'');
+    localStorage.setItem(key,JSON.stringify(ids));
+  }catch{}
+}
+initDraggable();
 
 // ═══════════════════════════════════════════════════════════════
 //   CHART.JS PnL
@@ -2483,6 +2914,11 @@ async function refresh(){
     setVal('s-dpnl',sgn(dp)+'$'+Math.abs(dp).toFixed(4),vcls(dp));
     setVal('s-upnl',sgn(up)+'$'+Math.abs(up).toFixed(4),vcls(up));
     setVal('s-portfolio','$'+((s.balance||0)+(s.unrealized_pnl||0)).toFixed(2),'w');
+
+    // ── Aurora + sidebar
+    setAuroraFromPnl(tp);
+    const sbBal=document.getElementById('sb-total-bal');
+    if(sbBal)sbBal.textContent='$'+((s.balance||0)+(s.unrealized_pnl||0)).toFixed(2);
 
     // ── Gauge
     const cl=trades.filter(t=>t.pnl!=null);
