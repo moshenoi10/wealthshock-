@@ -23,7 +23,11 @@ from auth.rate_limiter import check as rl_check, clear as rl_clear, record_failu
 from auth.tokens import create_token, revoke_token
 from logger.trade_logger import TradeLogger
 from logger import rejected_logger
-from platforms import kalshi_sim, crypto_arb_sim, detective, btc_lag_arb, market_maker_sim
+from platforms import (
+    kalshi_sim, crypto_arb_sim, detective,
+    btc_lag_arb, market_maker_sim,
+    sniper_30s, maker_spread_sim, sentiment_momentum,
+)
 import config
 
 _agent: AgentCore = None
@@ -63,6 +67,33 @@ async def _market_maker_loop():
             await market_maker_sim.scan()
         except Exception as exc:
             print(f"[MM LOOP] {exc}")
+        await asyncio.sleep(30)
+
+
+async def _sniper_loop():
+    while True:
+        try:
+            await sniper_30s.scan()
+        except Exception as exc:
+            print(f"[SNIPER LOOP] {exc}")
+        await asyncio.sleep(10)
+
+
+async def _maker_spread_loop():
+    while True:
+        try:
+            await maker_spread_sim.scan()
+        except Exception as exc:
+            print(f"[MAKER-SPREAD LOOP] {exc}")
+        await asyncio.sleep(30)
+
+
+async def _sentiment_loop():
+    while True:
+        try:
+            await sentiment_momentum.scan()
+        except Exception as exc:
+            print(f"[SENTIMENT LOOP] {exc}")
         await asyncio.sleep(30)
 
 
@@ -122,6 +153,9 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(_exploit_monitor_loop()),
         asyncio.create_task(_btc_lag_loop()),
         asyncio.create_task(_market_maker_loop()),
+        asyncio.create_task(_sniper_loop()),
+        asyncio.create_task(_maker_spread_loop()),
+        asyncio.create_task(_sentiment_loop()),
     ]
     yield
     for t in tasks:
@@ -324,6 +358,21 @@ async def api_btc_lag(_: dict = _auth_viewer):
 @app.get("/api/market-maker")
 async def api_market_maker(_: dict = _auth_viewer):
     return JSONResponse(market_maker_sim.get_status())
+
+
+@app.get("/api/sniper")
+async def api_sniper(_: dict = _auth_viewer):
+    return JSONResponse(sniper_30s.get_status())
+
+
+@app.get("/api/maker-spread")
+async def api_maker_spread(_: dict = _auth_viewer):
+    return JSONResponse(maker_spread_sim.get_status())
+
+
+@app.get("/api/sentiment")
+async def api_sentiment(_: dict = _auth_viewer):
+    return JSONResponse(sentiment_momentum.get_status())
 
 
 @app.get("/api/platform-summary")

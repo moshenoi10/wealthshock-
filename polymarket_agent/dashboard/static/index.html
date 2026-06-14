@@ -956,6 +956,22 @@ body::before{
       <span class="sb-label">Market Maker</span>
       <span class="sb-sdot"></span>
     </div>
+    <div class="sb-divider" style="margin-top:4px;margin-bottom:4px"></div>
+    <div class="sb-item" data-sec="sniper" onclick="navTo('sniper')">
+      <span class="sb-icon">⚡</span>
+      <span class="sb-label">30s Sniper</span>
+      <span class="sb-sdot"></span>
+    </div>
+    <div class="sb-item" data-sec="maker-spread" onclick="navTo('maker-spread')">
+      <span class="sb-icon">💰</span>
+      <span class="sb-label">Maker Spread</span>
+      <span class="sb-sdot"></span>
+    </div>
+    <div class="sb-item" data-sec="sentiment" onclick="navTo('sentiment')">
+      <span class="sb-icon">🧠</span>
+      <span class="sb-label">Sentiment</span>
+      <span class="sb-sdot"></span>
+    </div>
   </nav>
   <div class="sb-cmd-hint">⌘K — פלטת פקודות</div>
   <div class="sb-footer">
@@ -1651,6 +1667,206 @@ body::before{
 </div>
 </div>
 
+<!-- ─── SECTION: 30s SNIPER ───────────────────────────────────────── -->
+<div class="section" id="sec-sniper">
+<div class="page">
+
+  <div style="background:rgba(255,204,0,.05);border:1px solid rgba(255,204,0,.25);border-radius:2px;padding:12px 20px;display:flex;align-items:center;gap:14px;margin-bottom:20px">
+    <span style="font-size:20px">⚡</span>
+    <div>
+      <div style="font-size:12px;font-weight:700;color:var(--yellow);letter-spacing:1px">30-60s RESOLUTION SNIPER — הדמיה בלבד</div>
+      <div style="font-size:11px;color:var(--text4);margin-top:2px">מזהה מומנטום BTC ב-30 שניות אחרונות. קונה YES/NO כשמומנטום &gt;0.5%. מחכה לפקיעה.</div>
+    </div>
+    <div style="margin-right:auto;text-align:left">
+      <div style="font-size:10px;color:var(--text4)">מומנטום BTC עכשיו</div>
+      <div style="font-size:20px;font-weight:700;font-family:'SF Mono','Courier New',monospace;color:var(--yellow)" id="sniper-momentum">—%</div>
+    </div>
+  </div>
+
+  <div class="metrics" style="margin-bottom:20px">
+    <div class="mc"><div class="mc-lbl">מאזן</div><div class="mc-val w" id="sniper-balance">$500.00</div></div>
+    <div class="mc"><div class="mc-lbl">רווח/הפסד</div><div class="mc-val" id="sniper-pnl">$0.0000</div></div>
+    <div class="mc"><div class="mc-lbl">עסקאות</div><div class="mc-val w" id="sniper-trades">0</div></div>
+    <div class="mc"><div class="mc-lbl">% ניצחון</div><div class="mc-val w" id="sniper-winrate">—</div></div>
+    <div class="mc"><div class="mc-lbl">פוזיציות</div><div class="mc-val w" id="sniper-open-pos">0</div></div>
+    <div class="mc"><div class="mc-lbl">BTC עכשיו</div><div class="mc-val w" id="sniper-btc-price">—</div></div>
+    <div class="mc"><div class="mc-lbl">שווקים בחלון</div><div class="mc-val w" id="sniper-markets">0</div></div>
+    <div class="mc"><div class="mc-lbl">סריקות</div><div class="mc-val w" id="sniper-scans">0</div></div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+    <div class="card">
+      <div class="ch"><span class="ch-title">הזדמנויות בחלון 2 דקות</span></div>
+      <div id="sniper-opps-body" style="font-size:11px;color:var(--text4);padding:12px 16px">ממתין...</div>
+    </div>
+    <div class="card">
+      <div class="ch"><span class="ch-title">פוזיציות פתוחות</span></div>
+      <div id="sniper-positions-body" style="font-size:11px;color:var(--text4);padding:12px 16px">אין פוזיציות</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="ch"><span class="ch-title">עסקאות שנסגרו</span></div>
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:11px">
+        <thead>
+          <tr style="color:var(--text4);border-bottom:1px solid var(--border)">
+            <th style="padding:6px 8px;text-align:right">שאלה</th>
+            <th style="padding:6px 8px;text-align:center">צד</th>
+            <th style="padding:6px 8px;text-align:center">כניסה</th>
+            <th style="padding:6px 8px;text-align:center">מומנטום%</th>
+            <th style="padding:6px 8px;text-align:center">עלות</th>
+            <th style="padding:6px 8px;text-align:center">תוצאה</th>
+            <th style="padding:6px 8px;text-align:left">רווח/הפסד</th>
+          </tr>
+        </thead>
+        <tbody id="sniper-trades-body">
+          <tr><td colspan="7" style="text-align:center;color:var(--text4);padding:20px">אין עסקאות עדיין</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <div class="ch"><span class="ch-title">לוג סריקות</span></div>
+    <div id="sniper-scan-log" style="font-family:'SF Mono','Courier New',monospace;font-size:11px;color:var(--text4);padding:8px 16px;line-height:1.7">ממתין...</div>
+  </div>
+
+</div>
+</div>
+
+<!-- ─── SECTION: MAKER SPREAD ─────────────────────────────────────── -->
+<div class="section" id="sec-maker-spread">
+<div class="page">
+
+  <div style="background:rgba(74,200,74,.05);border:1px solid rgba(74,200,74,.25);border-radius:2px;padding:12px 20px;display:flex;align-items:center;gap:14px;margin-bottom:20px">
+    <span style="font-size:20px">💰</span>
+    <div>
+      <div style="font-size:12px;font-weight:700;color:#4ec94e;letter-spacing:1px">MAKER SPREAD — הדמיה בלבד</div>
+      <div style="font-size:11px;color:var(--text4);margin-top:2px">מציב bid ו-ask סביב mid±1.5%. מרוויח ממרח כשגם bid וגם ask ממולאים + תגמול נזילות.</div>
+    </div>
+    <div style="margin-right:auto;text-align:left">
+      <div style="font-size:10px;color:var(--text4)">תגמולי LP צבורים</div>
+      <div style="font-size:20px;font-weight:700;font-family:'SF Mono','Courier New',monospace;color:#4ec94e" id="ms-lp-rewards">$0.0000</div>
+    </div>
+  </div>
+
+  <div class="metrics" style="margin-bottom:20px">
+    <div class="mc"><div class="mc-lbl">מאזן</div><div class="mc-val w" id="ms-balance">$500.00</div></div>
+    <div class="mc"><div class="mc-lbl">רווח/הפסד</div><div class="mc-val" id="ms-pnl">$0.0000</div></div>
+    <div class="mc"><div class="mc-lbl">עסקאות</div><div class="mc-val w" id="ms-trades">0</div></div>
+    <div class="mc"><div class="mc-lbl">% ניצחון</div><div class="mc-val w" id="ms-winrate">—</div></div>
+    <div class="mc"><div class="mc-lbl">ספרים פתוחים</div><div class="mc-val w" id="ms-books">0/5</div></div>
+    <div class="mc"><div class="mc-lbl">סריקות</div><div class="mc-val w" id="ms-scans">0</div></div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="ch"><span class="ch-title">ספרי bid/ask פתוחים</span></div>
+    <div id="ms-books-body" style="font-size:11px;color:var(--text4);padding:8px 0">ממתין...</div>
+  </div>
+
+  <div class="card">
+    <div class="ch"><span class="ch-title">עסקאות שנסגרו</span></div>
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:11px">
+        <thead>
+          <tr style="color:var(--text4);border-bottom:1px solid var(--border)">
+            <th style="padding:6px 8px;text-align:right">שאלה</th>
+            <th style="padding:6px 8px;text-align:center">bid</th>
+            <th style="padding:6px 8px;text-align:center">ask</th>
+            <th style="padding:6px 8px;text-align:center">סוג</th>
+            <th style="padding:6px 8px;text-align:center">ממרח</th>
+            <th style="padding:6px 8px;text-align:center">LP</th>
+            <th style="padding:6px 8px;text-align:left">רווח/הפסד</th>
+          </tr>
+        </thead>
+        <tbody id="ms-trades-body">
+          <tr><td colspan="7" style="text-align:center;color:var(--text4);padding:20px">אין עסקאות עדיין</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <div class="ch"><span class="ch-title">לוג סריקות</span></div>
+    <div id="ms-scan-log" style="font-family:'SF Mono','Courier New',monospace;font-size:11px;color:var(--text4);padding:8px 16px;line-height:1.7">ממתין...</div>
+  </div>
+
+</div>
+</div>
+
+<!-- ─── SECTION: SENTIMENT MOMENTUM ──────────────────────────────────── -->
+<div class="section" id="sec-sentiment">
+<div class="page">
+
+  <div style="background:rgba(150,100,255,.05);border:1px solid rgba(150,100,255,.25);border-radius:2px;padding:12px 20px;display:flex;align-items:center;gap:14px;margin-bottom:20px">
+    <span style="font-size:20px">🧠</span>
+    <div>
+      <div style="font-size:12px;font-weight:700;color:#9664ff;letter-spacing:1px">SENTIMENT MOMENTUM — הדמיה בלבד</div>
+      <div style="font-size:11px;color:var(--text4);margin-top:2px">Binance order book depth + Fear &amp; Greed Index. קונה כשאמות מידה מיישרות קו.</div>
+    </div>
+    <div style="margin-right:auto;text-align:left">
+      <div style="font-size:10px;color:var(--text4)">אות נוכחי</div>
+      <div style="font-size:18px;font-weight:700;font-family:'SF Mono','Courier New',monospace" id="sent-signal">—</div>
+    </div>
+    <div style="text-align:left">
+      <div style="font-size:10px;color:var(--text4)">Fear &amp; Greed</div>
+      <div style="font-size:24px;font-weight:700;font-family:'SF Mono','Courier New',monospace" id="sent-fng">—</div>
+      <div style="font-size:10px;color:var(--text4)" id="sent-fng-label">—</div>
+    </div>
+    <div style="text-align:left">
+      <div style="font-size:10px;color:var(--text4)">Depth Ratio</div>
+      <div style="font-size:24px;font-weight:700;font-family:'SF Mono','Courier New',monospace" id="sent-depth">—</div>
+    </div>
+  </div>
+
+  <div class="metrics" style="margin-bottom:20px">
+    <div class="mc"><div class="mc-lbl">מאזן</div><div class="mc-val w" id="sent-balance">$500.00</div></div>
+    <div class="mc"><div class="mc-lbl">רווח/הפסד</div><div class="mc-val" id="sent-pnl">$0.0000</div></div>
+    <div class="mc"><div class="mc-lbl">עסקאות</div><div class="mc-val w" id="sent-trades">0</div></div>
+    <div class="mc"><div class="mc-lbl">% ניצחון</div><div class="mc-val w" id="sent-winrate">—</div></div>
+    <div class="mc"><div class="mc-lbl">פוזיציות</div><div class="mc-val w" id="sent-open-pos">0</div></div>
+    <div class="mc"><div class="mc-lbl">BTC</div><div class="mc-val w" id="sent-btc">—</div></div>
+    <div class="mc"><div class="mc-lbl">סריקות</div><div class="mc-val w" id="sent-scans">0</div></div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+    <div class="card">
+      <div class="ch"><span class="ch-title">פוזיציות פתוחות</span></div>
+      <div id="sent-positions-body" style="font-size:11px;color:var(--text4);padding:12px 16px">אין פוזיציות</div>
+    </div>
+    <div class="card">
+      <div class="ch"><span class="ch-title">לוג סריקות</span></div>
+      <div id="sent-scan-log" style="font-family:'SF Mono','Courier New',monospace;font-size:11px;color:var(--text4);padding:8px 16px;line-height:1.7;max-height:240px;overflow-y:auto">ממתין...</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="ch"><span class="ch-title">עסקאות שנסגרו</span></div>
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:11px">
+        <thead>
+          <tr style="color:var(--text4);border-bottom:1px solid var(--border)">
+            <th style="padding:6px 8px;text-align:right">שאלה</th>
+            <th style="padding:6px 8px;text-align:center">צד</th>
+            <th style="padding:6px 8px;text-align:center">כניסה</th>
+            <th style="padding:6px 8px;text-align:center">יציאה</th>
+            <th style="padding:6px 8px;text-align:center">אות</th>
+            <th style="padding:6px 8px;text-align:center">F&amp;G</th>
+            <th style="padding:6px 8px;text-align:center">סיבה</th>
+            <th style="padding:6px 8px;text-align:left">רווח/הפסד</th>
+          </tr>
+        </thead>
+        <tbody id="sent-trades-body">
+          <tr><td colspan="8" style="text-align:center;color:var(--text4);padding:20px">אין עסקאות עדיין</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+</div>
+
 <!-- ═══ FOOTER ════════════════════════════════════════════════════ -->
 <div class="foot">
   <div style="display:flex;align-items:center;gap:8px">
@@ -1664,6 +1880,207 @@ body::before{
 </div><!-- /app-layout -->
 
 <script>
+// ═══════════════════════════════════════════════════════════════
+//   30s SNIPER
+// ═══════════════════════════════════════════════════════════════
+function updateSniper(d){
+  if(!d)return;
+  const pnl=d.total_pnl||0,tot=d.trades||0,wr=d.win_rate||0;
+  const mom=d.momentum_pct||0;
+  document.getElementById('sniper-balance').textContent='$'+(d.balance||500).toFixed(2);
+  const pe=document.getElementById('sniper-pnl');
+  pe.textContent=(pnl>=0?'+':'')+pnl.toFixed(4);
+  pe.className='mc-val '+(pnl>0?'g':pnl<0?'r':'w');
+  document.getElementById('sniper-trades').textContent=tot;
+  document.getElementById('sniper-winrate').textContent=tot?Math.round(wr*100)+'%':'—';
+  document.getElementById('sniper-open-pos').textContent=(d.open_positions||[]).length;
+  document.getElementById('sniper-markets').textContent=d.scan_log?.[0]?.markets_in_window||0;
+  document.getElementById('sniper-scans').textContent=d.scan_count||0;
+  const momEl=document.getElementById('sniper-momentum');
+  if(momEl){momEl.textContent=(mom>=0?'+':'')+mom.toFixed(3)+'%';momEl.style.color=mom>0.5?'var(--green)':mom<-0.5?'var(--red)':'var(--yellow)';}
+  const btcEl=document.getElementById('sniper-btc-price');
+  if(btcEl&&d.btc_price)btcEl.textContent='$'+d.btc_price.toLocaleString('en-US',{minimumFractionDigits:0});
+
+  const ob=document.getElementById('sniper-opps-body');
+  const scanLog=d.scan_log||[];
+  const lastLog=scanLog[0]||{};
+  if(ob){
+    if(!lastLog.opps){ob.innerHTML='<div style="color:var(--text4)">אין שווקים בחלון 2 דקות</div>';}
+    else ob.innerHTML=`<div style="color:var(--text4)">סריקה #${lastLog.scan||0}: ${lastLog.markets_in_window||0} שווקים בחלון · מומנטום ${lastLog.momentum_pct||0}%</div>`;
+  }
+
+  const pb=document.getElementById('sniper-positions-body');
+  if(pb){
+    const pos=d.open_positions||[];
+    if(!pos.length){pb.innerHTML='<div style="color:var(--text4)">אין פוזיציות פתוחות</div>';}
+    else pb.innerHTML=pos.map(p=>`
+      <div style="border-bottom:1px solid var(--border);padding:6px 0">
+        <div style="color:var(--text2)">${p.question}</div>
+        <div style="display:flex;gap:10px;font-size:10px;margin-top:3px">
+          <span>צד: <b style="color:${p.side==='YES'?'var(--green)':'var(--blue)'}">${p.side}</b></span>
+          <span>כניסה: <b>${p.entry_price}</b></span>
+          <span>זמן: <b>${p.held_s}s</b></span>
+          <span>פקיעה עוד: <b>${p.secs_to_close}s</b></span>
+          <span>מומנטום: <b>${p.momentum_pct}%</b></span>
+        </div>
+      </div>`).join('');
+  }
+
+  const tb=document.getElementById('sniper-trades-body');
+  if(tb){
+    const trades=d.sim_trades||[];
+    if(!trades.length)tb.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--text4);padding:20px">אין עסקאות עדיין</td></tr>';
+    else tb.innerHTML=trades.map(t=>{const pc=(t.pnl||0)>=0?'dp':'dn';
+      return`<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:5px 8px;color:var(--text3);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.question}</td>
+        <td style="padding:5px 8px;text-align:center;color:${t.side==='YES'?'var(--green)':'var(--blue)'}">${t.side}</td>
+        <td style="padding:5px 8px;text-align:center">${t.entry_price}</td>
+        <td style="padding:5px 8px;text-align:center;color:${t.momentum_pct>0?'var(--green)':'var(--red)'}">${t.momentum_pct}%</td>
+        <td style="padding:5px 8px;text-align:center">$${(t.cost||0).toFixed(3)}</td>
+        <td style="padding:5px 8px;text-align:center">${t.won?'✓':'✗'} ${t.reason}</td>
+        <td class="${pc}" style="padding:5px 8px;text-align:left;font-weight:600">${((t.pnl||0)>=0?'+':'')+(t.pnl||0).toFixed(4)}</td>
+      </tr>`}).join('');
+  }
+
+  const sl=document.getElementById('sniper-scan-log');
+  if(sl){
+    if(!scanLog.length)sl.textContent='ממתין...';
+    else sl.innerHTML=scanLog.map(r=>`
+      <div>[#${r.scan}] BTC=$${r.btc} mom=${r.momentum_pct}% win=${r.markets_in_window} pos=${r.positions}</div>`).join('');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//   MAKER SPREAD
+// ═══════════════════════════════════════════════════════════════
+function updateMakerSpread(d){
+  if(!d)return;
+  const pnl=d.total_pnl||0,tot=d.trades||0,wr=d.win_rate||0;
+  document.getElementById('ms-balance').textContent='$'+(d.balance||500).toFixed(2);
+  const pe=document.getElementById('ms-pnl');
+  pe.textContent=(pnl>=0?'+':'')+pnl.toFixed(4);
+  pe.className='mc-val '+(pnl>0?'g':pnl<0?'r':'w');
+  document.getElementById('ms-trades').textContent=tot;
+  document.getElementById('ms-winrate').textContent=tot?Math.round(wr*100)+'%':'—';
+  document.getElementById('ms-books').textContent=(d.open_books||[]).length+'/'+(d.top_n||5);
+  document.getElementById('ms-scans').textContent=d.scan_count||0;
+  const lpEl=document.getElementById('ms-lp-rewards');
+  if(lpEl)lpEl.textContent='$'+(d.lp_rewards||0).toFixed(4);
+
+  const bb=document.getElementById('ms-books-body');
+  if(bb){
+    const books=d.open_books||[];
+    if(!books.length)bb.innerHTML='<div style="color:var(--text4);padding:10px 16px">אין ספרים פתוחים</div>';
+    else bb.innerHTML=books.map(b=>`
+      <div style="padding:8px 16px;border-bottom:1px solid var(--border)">
+        <div style="color:var(--text2);font-size:11px">${b.question}</div>
+        <div style="display:flex;gap:12px;font-size:10px;margin-top:3px">
+          <span>bid: <b style="color:var(--red)">${b.bid}</b> ${b.bid_filled?'✓ מולא':'◯ פתוח'}</span>
+          <span>ask: <b style="color:var(--green)">${b.ask}</b> ${b.ask_filled?'✓ מולא':'◯ פתוח'}</span>
+          <span>ממרח: <b style="color:var(--green)">${b.spread_pct}%</b></span>
+          <span>גודל: <b>$${b.size.toFixed(2)}</b></span>
+          <span>זמן: <b>${b.held_min}דק׳</b></span>
+        </div>
+      </div>`).join('');
+  }
+
+  const tb=document.getElementById('ms-trades-body');
+  if(tb){
+    const trades=d.sim_trades||[];
+    if(!trades.length)tb.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--text4);padding:20px">אין עסקאות עדיין</td></tr>';
+    else tb.innerHTML=trades.map(t=>{const pc=(t.pnl||0)>=0?'dp':'dn';
+      return`<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:5px 8px;color:var(--text3);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.question}</td>
+        <td style="padding:5px 8px;text-align:center">${t.bid}</td>
+        <td style="padding:5px 8px;text-align:center">${t.ask}</td>
+        <td style="padding:5px 8px;text-align:center;font-size:10px;color:var(--text4)">${t.type}</td>
+        <td class="dp" style="padding:5px 8px;text-align:center">$${(t.spread_earned||0).toFixed(4)}</td>
+        <td style="padding:5px 8px;text-align:center;color:var(--text4)">$${(t.lp_reward||0).toFixed(4)}</td>
+        <td class="${pc}" style="padding:5px 8px;text-align:left;font-weight:600">${((t.pnl||0)>=0?'+':'')+(t.pnl||0).toFixed(4)}</td>
+      </tr>`}).join('');
+  }
+
+  const sl=document.getElementById('ms-scan-log');
+  if(sl){
+    const logs=d.scan_log||[];
+    if(!logs.length)sl.textContent='ממתין...';
+    else sl.innerHTML=logs.map(r=>`
+      <div>[#${r.scan}] books=${r.books_open} lp_total=$${r.lp_rewards_total}</div>`).join('');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//   SENTIMENT MOMENTUM
+// ═══════════════════════════════════════════════════════════════
+function updateSentiment(d){
+  if(!d)return;
+  const pnl=d.total_pnl||0,tot=d.trades||0,wr=d.win_rate||0;
+  document.getElementById('sent-balance').textContent='$'+(d.balance||500).toFixed(2);
+  const pe=document.getElementById('sent-pnl');
+  pe.textContent=(pnl>=0?'+':'')+pnl.toFixed(4);
+  pe.className='mc-val '+(pnl>0?'g':pnl<0?'r':'w');
+  document.getElementById('sent-trades').textContent=tot;
+  document.getElementById('sent-winrate').textContent=tot?Math.round(wr*100)+'%':'—';
+  document.getElementById('sent-open-pos').textContent=(d.open_positions||[]).length;
+  document.getElementById('sent-scans').textContent=d.scan_count||0;
+  if(d.btc_price){const be=document.getElementById('sent-btc');if(be)be.textContent='$'+d.btc_price.toLocaleString('en-US');}
+
+  const fngEl=document.getElementById('sent-fng');
+  const fngLbl=document.getElementById('sent-fng-label');
+  if(fngEl){fngEl.textContent=d.fng_score||'—';fngEl.style.color=d.fng_score>60?'var(--green)':d.fng_score<40?'var(--red)':'var(--yellow)';}
+  if(fngLbl)fngLbl.textContent=d.fng_label||'—';
+  const depthEl=document.getElementById('sent-depth');
+  if(depthEl){depthEl.textContent=d.depth_ratio||'—';depthEl.style.color=d.depth_ratio>1.25?'var(--green)':d.depth_ratio<0.8?'var(--red)':'var(--yellow)';}
+  const sigEl=document.getElementById('sent-signal');
+  if(sigEl){
+    const sig=d.current_signal||'none';
+    sigEl.textContent=sig==='bullish'?'▲ BULLISH':sig==='bearish'?'▼ BEARISH':'— NEUTRAL';
+    sigEl.style.color=sig==='bullish'?'var(--green)':sig==='bearish'?'var(--red)':'var(--text4)';
+  }
+
+  const pb=document.getElementById('sent-positions-body');
+  if(pb){
+    const pos=d.open_positions||[];
+    if(!pos.length)pb.innerHTML='<div style="color:var(--text4)">אין פוזיציות פתוחות</div>';
+    else pb.innerHTML=pos.map(p=>`
+      <div style="border-bottom:1px solid var(--border);padding:6px 0">
+        <div style="color:var(--text2);font-size:11px">${p.question}</div>
+        <div style="display:flex;gap:10px;font-size:10px;margin-top:3px">
+          <span>צד: <b style="color:${p.side==='YES'?'var(--green)':'var(--blue)'}">${p.side}</b></span>
+          <span>כניסה: <b>${p.entry_price}</b></span>
+          <span>אות: <b>${p.signal}</b></span>
+          <span>F&G: <b>${p.fng}</b></span>
+          <span>זמן: <b>${p.held_min}דק׳</b></span>
+        </div>
+      </div>`).join('');
+  }
+
+  const sl=document.getElementById('sent-scan-log');
+  if(sl){
+    const logs=d.scan_log||[];
+    if(!logs.length)sl.textContent='ממתין...';
+    else sl.innerHTML=logs.map(r=>`
+      <div>[#${r.scan}] fng=${r.fng_score}(${r.fng_label}) depth=${r.depth_ratio} signal=${r.signal} new=${r.new_entries}</div>`).join('');
+  }
+
+  const tb=document.getElementById('sent-trades-body');
+  if(tb){
+    const trades=d.sim_trades||[];
+    if(!trades.length)tb.innerHTML='<tr><td colspan="8" style="text-align:center;color:var(--text4);padding:20px">אין עסקאות עדיין</td></tr>';
+    else tb.innerHTML=trades.map(t=>{const pc=(t.pnl||0)>=0?'dp':'dn';
+      return`<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:5px 8px;color:var(--text3);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.question}</td>
+        <td style="padding:5px 8px;text-align:center;color:${t.side==='YES'?'var(--green)':'var(--blue)'}">${t.side}</td>
+        <td style="padding:5px 8px;text-align:center">${t.entry_price}</td>
+        <td style="padding:5px 8px;text-align:center">${t.exit_price}</td>
+        <td style="padding:5px 8px;text-align:center;font-size:10px">${t.signal}</td>
+        <td style="padding:5px 8px;text-align:center">${t.fng_at_entry}</td>
+        <td style="padding:5px 8px;text-align:center;font-size:10px;color:var(--text4)">${t.reason}</td>
+        <td class="${pc}" style="padding:5px 8px;text-align:left;font-weight:600">${((t.pnl||0)>=0?'+':'')+(t.pnl||0).toFixed(4)}</td>
+      </tr>`}).join('');
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════
 //   AURORA ANIMATED BACKGROUND
 // ═══════════════════════════════════════════════════════════════
@@ -1758,6 +2175,9 @@ const _CMD=[
   {icon:'🔍',label:'בלש · ניתוח',meta:'דפוסים וארנקים',action:()=>navTo('detective')},
   {icon:'₿',label:'BTC Lag Arb',meta:'הדמיה',action:()=>navTo('btc')},
   {icon:'⚡',label:'Market Maker',meta:'הדמיה',action:()=>navTo('mm')},
+  {icon:'⚡',label:'30s Sniper',meta:'סנייפר קרוב לפקיעה',action:()=>navTo('sniper')},
+  {icon:'💰',label:'Maker Spread',meta:'ספרד נזילות',action:()=>navTo('maker-spread')},
+  {icon:'🧠',label:'Sentiment Momentum',meta:'order book + fear & greed',action:()=>navTo('sentiment')},
   {icon:'↺',label:'רענון נתונים',meta:'',action:()=>refresh()},
   {icon:'👥',label:'ניהול משתמשים',meta:'מנהל בלבד',action:()=>openAdmin()},
   {icon:'⏻',label:'יציאה',meta:'',action:()=>doLogout()},
@@ -2932,7 +3352,7 @@ let _pl=-1;
 async function refresh(){
   if(!_authToken)return;
   try{
-    const [sr,tr,pr,rr,hr,ar,kr,cr,dr,psr,br,nrr,mmr]=await Promise.all([
+    const [sr,tr,pr,rr,hr,ar,kr,cr,dr,psr,br,nrr,mmr,snr,msr,senr]=await Promise.all([
       authFetch('/api/status'),authFetch('/api/trades'),authFetch('/api/positions'),
       authFetch('/api/rejections'),authFetch('/api/pnl-history'),authFetch('/api/activity'),
       authFetch('/api/platforms/kalshi').catch(()=>null),
@@ -2942,6 +3362,9 @@ async function refresh(){
       authFetch('/api/btc-lag').catch(()=>null),
       authFetch('/api/debug/near-resolution').catch(()=>null),
       authFetch('/api/market-maker').catch(()=>null),
+      authFetch('/api/sniper').catch(()=>null),
+      authFetch('/api/maker-spread').catch(()=>null),
+      authFetch('/api/sentiment').catch(()=>null),
     ]);
     const s=await sr.json(),trades=await tr.json(),positions=await pr.json();
     const rejs=await rr.json(),history=await hr.json(),activity=await ar.json();
@@ -3000,6 +3423,9 @@ async function refresh(){
     if(br){try{updateBtcLag(await br.json());}catch{}}
     if(nrr){try{updateNrDebug(await nrr.json());}catch{}}
     if(mmr){try{updateMarketMaker(await mmr.json());}catch{}}
+    if(snr){try{updateSniper(await snr.json());}catch{}}
+    if(msr){try{updateMakerSpread(await msr.json());}catch{}}
+    if(senr){try{updateSentiment(await senr.json());}catch{}}
 
     // ── Copy trading status
     updateCopyTradingStatus(s,trades);
