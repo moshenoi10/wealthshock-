@@ -438,9 +438,180 @@ tbody tr:hover td{background:var(--bg3)}
 
 /* ─── Empty state ─── */
 .empty{text-align:center;padding:40px 20px;color:var(--text4);font-size:13px}
+
+/* ─────────────────────────────────────────────────────────────
+   LOGIN OVERLAY
+───────────────────────────────────────────────────────────── */
+#login-overlay{
+  position:fixed;inset:0;z-index:9999;
+  background:#000;
+  display:flex;align-items:center;justify-content:center;
+  flex-direction:column;gap:0;
+}
+.login-box{
+  background:#13131a;
+  border:1px solid var(--border);
+  border-radius:4px;
+  padding:48px 48px 40px;
+  width:380px;
+  box-shadow:0 8px 48px rgba(0,0,0,.8);
+}
+.login-logo{
+  font-size:22px;font-weight:900;color:var(--green);
+  letter-spacing:4px;text-transform:uppercase;margin-bottom:4px;
+}
+.login-sub{font-size:11px;color:var(--text4);letter-spacing:3px;margin-bottom:40px}
+.login-field{margin-bottom:20px}
+.login-label{font-size:11px;color:var(--text4);letter-spacing:2px;
+             text-transform:uppercase;font-weight:600;margin-bottom:8px;display:block}
+.login-input{
+  width:100%;background:#1e1e24;border:1px solid var(--border);
+  border-radius:var(--r);padding:12px 16px;color:var(--text);
+  font-family:inherit;font-size:15px;outline:none;
+  transition:border-color .2s;
+  direction:ltr;text-align:left;
+}
+.login-input:focus{border-color:var(--green)}
+.login-btn{
+  width:100%;padding:14px;background:var(--green);
+  color:#000;border:none;border-radius:var(--r);
+  font-size:13px;font-weight:800;letter-spacing:2px;
+  text-transform:uppercase;cursor:pointer;
+  transition:opacity .15s;margin-top:8px;
+}
+.login-btn:hover{opacity:.85}
+.login-btn:disabled{opacity:.4;cursor:default}
+.login-err{
+  color:var(--red);font-size:12px;margin-top:12px;min-height:18px;
+  text-align:center;letter-spacing:.5px;
+}
+.login-cooldown{
+  color:var(--yellow);font-size:12px;text-align:center;
+  margin-top:8px;min-height:16px;
+}
+
+/* ─── Auth header elements ─── */
+.user-pill{
+  display:flex;align-items:center;gap:8px;
+  padding:5px 12px;border-radius:var(--r);
+  border:1px solid var(--border);background:rgba(255,255,255,.03);
+  font-size:12px;font-weight:700;color:var(--text2);cursor:default;
+}
+.role-dot{width:6px;height:6px;border-radius:50%;display:inline-block}
+.role-admin .role-dot{background:var(--red)}
+.role-trader .role-dot{background:var(--yellow)}
+.role-viewer .role-dot{background:var(--text4)}
+.btn-logout{
+  padding:5px 14px;border-radius:var(--r);border:1px solid rgba(255,51,51,.4);
+  background:rgba(255,51,51,.06);color:var(--red);font-size:11px;font-weight:700;
+  letter-spacing:1px;cursor:pointer;transition:background .15s;font-family:inherit;
+}
+.btn-logout:hover{background:rgba(255,51,51,.15)}
+
+/* ─── Admin user management panel ─── */
+.admin-panel{
+  position:fixed;inset:0;z-index:8000;
+  background:rgba(0,0,0,.75);
+  display:none;align-items:center;justify-content:center;
+}
+.admin-panel.open{display:flex}
+.admin-box{
+  background:#13131a;border:1px solid var(--border);
+  border-radius:4px;width:700px;max-height:85vh;overflow:auto;
+  box-shadow:0 8px 48px rgba(0,0,0,.8);
+}
+.admin-hdr{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:20px 24px;border-bottom:1px solid var(--border);
+  position:sticky;top:0;background:#13131a;
+}
+.admin-title{font-size:13px;font-weight:700;color:var(--text);letter-spacing:2px;text-transform:uppercase}
+.admin-close{background:none;border:none;color:var(--text4);font-size:20px;cursor:pointer;padding:0 4px;}
+.admin-close:hover{color:var(--text)}
+.users-table{width:100%;border-collapse:collapse}
+.users-table th{font-size:10px;color:var(--text4);letter-spacing:2px;text-transform:uppercase;
+                font-weight:600;padding:12px 20px;text-align:right;border-bottom:1px solid var(--border)}
+.users-table td{padding:12px 20px;border-bottom:1px solid #1d1d24;font-size:13px;color:var(--text2)}
+.users-table tr:hover td{background:var(--bg3)}
+.role-badge{padding:3px 8px;border-radius:2px;font-size:10px;font-weight:700;letter-spacing:1px}
+.rb-admin{background:rgba(255,51,51,.1);color:var(--red);border:1px solid rgba(255,51,51,.3)}
+.rb-trader{background:rgba(255,204,0,.08);color:var(--yellow);border:1px solid rgba(255,204,0,.3)}
+.rb-viewer{background:rgba(136,136,170,.08);color:var(--text4);border:1px solid var(--border)}
+.btn-del{background:none;border:1px solid rgba(255,51,51,.3);color:var(--red);
+         font-size:11px;padding:3px 10px;border-radius:2px;cursor:pointer;font-family:inherit}
+.btn-del:hover{background:rgba(255,51,51,.1)}
+.admin-add{padding:20px 24px;border-top:1px solid var(--border)}
+.admin-add-title{font-size:11px;color:var(--text4);letter-spacing:2px;text-transform:uppercase;
+                 font-weight:600;margin-bottom:14px}
+.admin-form{display:grid;grid-template-columns:1fr 1fr auto auto;gap:10px;align-items:end}
+.admin-form input,.admin-form select{
+  background:#1e1e24;border:1px solid var(--border);border-radius:var(--r);
+  padding:8px 12px;color:var(--text);font-family:inherit;font-size:13px;
+  outline:none;direction:ltr;
+}
+.admin-form input:focus,.admin-form select:focus{border-color:var(--green)}
+.admin-form select option{background:#1e1e24}
+.btn-add{padding:8px 18px;background:var(--green);color:#000;border:none;
+         border-radius:var(--r);font-size:12px;font-weight:800;cursor:pointer;font-family:inherit}
+.btn-add:hover{opacity:.85}
+.admin-msg{font-size:12px;color:var(--green);margin-top:10px;min-height:18px}
 </style>
 </head>
 <body>
+
+<!-- ═══ LOGIN OVERLAY ══════════════════════════════════════════ -->
+<div id="login-overlay">
+  <div class="login-box">
+    <div class="login-logo">POLYMARKET</div>
+    <div class="login-sub">טרמינל מסחר אוטונומי</div>
+    <div class="login-field">
+      <label class="login-label" for="l-user">שם משתמש</label>
+      <input class="login-input" id="l-user" type="text" autocomplete="username" placeholder="username" />
+    </div>
+    <div class="login-field">
+      <label class="login-label" for="l-pass">סיסמה</label>
+      <input class="login-input" id="l-pass" type="password" autocomplete="current-password" placeholder="••••••" />
+    </div>
+    <button class="login-btn" id="l-btn" onclick="doLogin()">כניסה</button>
+    <div class="login-err" id="l-err"></div>
+    <div class="login-cooldown" id="l-cool"></div>
+  </div>
+</div>
+
+<!-- ═══ ADMIN PANEL ═════════════════════════════════════════════ -->
+<div class="admin-panel" id="admin-panel">
+  <div class="admin-box">
+    <div class="admin-hdr">
+      <span class="admin-title">ניהול משתמשים</span>
+      <button class="admin-close" onclick="closeAdmin()">✕</button>
+    </div>
+    <table class="users-table">
+      <thead>
+        <tr>
+          <th>משתמש</th>
+          <th>תפקיד</th>
+          <th>כניסה אחרונה</th>
+          <th>פעולות</th>
+        </tr>
+      </thead>
+      <tbody id="users-tbody"></tbody>
+    </table>
+    <div class="admin-add">
+      <div class="admin-add-title">הוספת משתמש חדש</div>
+      <div class="admin-form">
+        <input id="nu-name" type="text" placeholder="שם משתמש" />
+        <input id="nu-pass" type="password" placeholder="סיסמה (6+ תווים)" />
+        <select id="nu-role">
+          <option value="viewer">viewer</option>
+          <option value="trader">trader</option>
+          <option value="admin">admin</option>
+        </select>
+        <button class="btn-add" onclick="addUser()">הוסף</button>
+      </div>
+      <div class="admin-msg" id="admin-msg"></div>
+    </div>
+  </div>
+</div>
 
 <!-- ═══ HEADER ═══════════════════════════════════════════════════ -->
 <div class="hdr">
@@ -453,6 +624,12 @@ tbody tr:hover td{background:var(--bg3)}
   <button class="btn-reset" id="reset-btn" onclick="doReset()" style="display:none">↺ איפוס יתרה</button>
   <div class="hdr-space"></div>
   <span class="hdr-clock" id="hdr-clock">--:--:--</span>
+  <div class="user-pill" id="user-pill" style="display:none">
+    <span class="role-dot" id="user-role-dot"></span>
+    <span id="user-name-lbl"></span>
+  </div>
+  <button class="btn-reset" id="admin-btn" onclick="openAdmin()" style="display:none">👥 משתמשים</button>
+  <button class="btn-logout" id="logout-btn" onclick="doLogout()" style="display:none">יציאה</button>
 </div>
 
 <!-- ═══ SYSTEM HEALTH ════════════════════════════════════════════ -->
@@ -1409,7 +1586,7 @@ async function triggerDetectiveScan(){
   const btn=document.getElementById('d-scan-btn');
   if(btn){btn.textContent='⏳ סורק...';btn.disabled=true;}
   try{
-    await fetch('/api/detective/scan',{method:'POST'});
+    await authFetch('/api/detective/scan',{method:'POST'});
     // Poll for result after ~30s
     setTimeout(async()=>{
       try{
@@ -1426,7 +1603,7 @@ async function triggerDetectiveScan(){
 async function doReset(){
   if(!confirm('איפוס מלא: יתרה תחזור ל-$18.00 והסוכן יתחדש. להמשיך?'))return;
   try{
-    const r=await fetch('/reset',{method:'POST'});
+    const r=await authFetch('/reset',{method:'POST'});
     const d=await r.json();
     if(d.status==='reset'){
       document.getElementById('reset-btn').style.display='none';
@@ -1439,18 +1616,184 @@ async function doReset(){
 }
 
 // ═══════════════════════════════════════════════════════════════
+//   AUTHENTICATION
+// ═══════════════════════════════════════════════════════════════
+let _authToken=null;
+let _authRole=null;
+let _authUser=null;
+let _cooldownTimer=null;
+
+function authFetch(url,opts={}){
+  if(!_authToken) return fetch(url,opts);
+  const headers={...( opts.headers||{}),Authorization:'Bearer '+_authToken};
+  return fetch(url,{...opts,headers});
+}
+
+async function doLogin(){
+  const btn=document.getElementById('l-btn');
+  const err=document.getElementById('l-err');
+  const user=document.getElementById('l-user').value.trim();
+  const pass=document.getElementById('l-pass').value;
+  err.textContent='';
+  btn.disabled=true;btn.textContent='מתחבר...';
+  try{
+    const r=await fetch('/auth/login',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({username:user,password:pass}),
+    });
+    const d=await r.json();
+    if(!r.ok){
+      err.textContent=d.error||'שגיאת כניסה';
+      if(r.status===429){
+        const m=/(\d+)s/.exec(d.error||'');
+        startCooldown(m?parseInt(m[1]):10);
+      }
+      btn.disabled=false;btn.textContent='כניסה';
+      return;
+    }
+    _authToken=d.token;_authRole=d.role;_authUser=d.username;
+    localStorage.setItem('pm_token',d.token);
+    localStorage.setItem('pm_role',d.role);
+    localStorage.setItem('pm_user',d.username);
+    showDashboard();
+  }catch(e){
+    err.textContent='שגיאת רשת: '+e.message;
+    btn.disabled=false;btn.textContent='כניסה';
+  }
+}
+
+document.addEventListener('keydown',e=>{
+  if(e.key==='Enter'&&document.getElementById('login-overlay').style.display!=='none')doLogin();
+});
+
+async function doLogout(){
+  try{await authFetch('/auth/logout',{method:'POST'});}catch{}
+  _authToken=null;_authRole=null;_authUser=null;
+  localStorage.removeItem('pm_token');localStorage.removeItem('pm_role');localStorage.removeItem('pm_user');
+  showLogin();
+}
+
+function startCooldown(secs){
+  if(_cooldownTimer)clearInterval(_cooldownTimer);
+  let rem=secs;
+  const el=document.getElementById('l-cool');
+  const btn=document.getElementById('l-btn');
+  el.textContent=`המתן ${rem}s`;btn.disabled=true;
+  _cooldownTimer=setInterval(()=>{
+    rem--;
+    if(rem<=0){clearInterval(_cooldownTimer);el.textContent='';btn.disabled=false;btn.textContent='כניסה';}
+    else{el.textContent=`המתן ${rem}s`;}
+  },1000);
+}
+
+function showLogin(){
+  document.getElementById('login-overlay').style.display='flex';
+  document.getElementById('l-pass').value='';
+  document.getElementById('l-err').textContent='';
+}
+
+function showDashboard(){
+  document.getElementById('login-overlay').style.display='none';
+  const pill=document.getElementById('user-pill');
+  const dot=document.getElementById('user-role-dot');
+  pill.style.display='flex';
+  pill.className='user-pill role-'+_authRole;
+  dot.className='role-dot';
+  document.getElementById('user-name-lbl').textContent=_authUser+' · '+_authRole;
+  document.getElementById('logout-btn').style.display='';
+  if(_authRole==='admin')document.getElementById('admin-btn').style.display='';
+  refresh();
+}
+
+async function tryAutoLogin(){
+  const t=localStorage.getItem('pm_token');
+  if(!t){showLogin();return;}
+  try{
+    const r=await fetch('/auth/me',{headers:{Authorization:'Bearer '+t}});
+    if(r.ok){
+      const d=await r.json();
+      _authToken=t;_authRole=d.role;_authUser=d.username;
+      showDashboard();
+    }else{localStorage.removeItem('pm_token');showLogin();}
+  }catch{showLogin();}
+}
+
+// ═══════════════════════════════════════════════════════════════
+//   ADMIN USER MANAGEMENT
+// ═══════════════════════════════════════════════════════════════
+function openAdmin(){
+  document.getElementById('admin-panel').classList.add('open');
+  loadUsers();
+}
+function closeAdmin(){document.getElementById('admin-panel').classList.remove('open');}
+
+async function loadUsers(){
+  try{
+    const r=await authFetch('/admin/users');
+    if(!r.ok)return;
+    const users=await r.json();
+    const tb=document.getElementById('users-tbody');
+    tb.innerHTML=users.map(u=>{
+      const rb=`rb-${u.role}`;
+      const ll=u.last_login?new Date(u.last_login).toLocaleDateString('he-IL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'—';
+      return `<tr>
+        <td><span class="mono">${u.username}</span></td>
+        <td><span class="role-badge ${rb}">${u.role}</span></td>
+        <td class="w3">${ll}</td>
+        <td><button class="btn-del" onclick="delUser('${u.id}','${u.username}')">מחק</button></td>
+      </tr>`;
+    }).join('');
+  }catch(e){console.error(e);}
+}
+
+async function addUser(){
+  const name=document.getElementById('nu-name').value.trim();
+  const pass=document.getElementById('nu-pass').value;
+  const role=document.getElementById('nu-role').value;
+  const msg=document.getElementById('admin-msg');
+  if(!name||!pass){msg.textContent='מלא שם וסיסמה';msg.style.color='var(--red)';return;}
+  try{
+    const r=await authFetch('/admin/users',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({username:name,password:pass,role}),
+    });
+    const d=await r.json();
+    if(!r.ok){msg.textContent=d.error||'שגיאה';msg.style.color='var(--red)';}
+    else{
+      msg.textContent=`✓ משתמש ${name} נוצר`;msg.style.color='var(--green)';
+      document.getElementById('nu-name').value='';document.getElementById('nu-pass').value='';
+      loadUsers();
+    }
+  }catch(e){msg.textContent='שגיאה: '+e.message;msg.style.color='var(--red)';}
+}
+
+async function delUser(id,name){
+  if(!confirm(`מחוק את ${name}?`))return;
+  const msg=document.getElementById('admin-msg');
+  try{
+    const r=await authFetch('/admin/users/'+id,{method:'DELETE'});
+    const d=await r.json();
+    if(!r.ok){msg.textContent=d.error||'שגיאה';msg.style.color='var(--red)';}
+    else{msg.textContent=`✓ ${name} נמחק`;msg.style.color='var(--green)';loadUsers();}
+  }catch(e){msg.textContent='שגיאה: '+e.message;msg.style.color='var(--red)';}
+}
+
+// ═══════════════════════════════════════════════════════════════
 //   MAIN REFRESH
 // ═══════════════════════════════════════════════════════════════
 let _pl=-1;
 
 async function refresh(){
+  if(!_authToken)return;
   try{
     const [sr,tr,pr,rr,hr,ar,kr,cr,dr]=await Promise.all([
-      fetch('/api/status'),fetch('/api/trades'),fetch('/api/positions'),
-      fetch('/api/rejections'),fetch('/api/pnl-history'),fetch('/api/activity'),
-      fetch('/api/platforms/kalshi').catch(()=>null),
-      fetch('/api/platforms/crypto').catch(()=>null),
-      fetch('/api/detective').catch(()=>null),
+      authFetch('/api/status'),authFetch('/api/trades'),authFetch('/api/positions'),
+      authFetch('/api/rejections'),authFetch('/api/pnl-history'),authFetch('/api/activity'),
+      authFetch('/api/platforms/kalshi').catch(()=>null),
+      authFetch('/api/platforms/crypto').catch(()=>null),
+      authFetch('/api/detective').catch(()=>null),
     ]);
     const s=await sr.json(),trades=await tr.json(),positions=await pr.json();
     const rejs=await rr.json(),history=await hr.json(),activity=await ar.json();
@@ -1519,8 +1862,8 @@ async function refresh(){
 }
 
 setInterval(()=>document.getElementById('hdr-clock').textContent=new Date().toLocaleTimeString('he-IL'),1000);
-refresh();
 setInterval(refresh,2500);
+tryAutoLogin();
 </script>
 </body>
 </html>
