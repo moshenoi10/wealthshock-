@@ -709,8 +709,26 @@ tbody tr:hover td{background:rgba(255,255,255,0.025)}
   transition:all 0.2s;text-align:center;font-family:inherit;
 }
 .sb-toggle:hover{color:var(--text);border-color:rgba(255,255,255,.15)}
-.sb-cmd-hint{padding:6px 12px 8px;font-size:9px;color:var(--text4);letter-spacing:1.5px;white-space:nowrap}
+.sb-cmd-hint{padding:6px 12px 4px;font-size:9px;color:var(--text4);letter-spacing:1.5px;white-space:nowrap}
 #sidebar.collapsed .sb-cmd-hint{display:none}
+.sb-refresh{
+  width:100%;display:flex;align-items:center;justify-content:center;gap:8px;
+  padding:9px 8px;margin-bottom:6px;
+  background:rgba(0,255,153,0.07);
+  border:1px solid rgba(0,255,153,0.2);
+  border-radius:var(--r);
+  color:var(--green);font-family:inherit;font-size:12px;font-weight:700;
+  cursor:pointer;letter-spacing:.5px;
+  transition:all 0.15s;
+}
+.sb-refresh:hover{background:rgba(0,255,153,0.14);border-color:rgba(0,255,153,0.4);box-shadow:0 0 16px rgba(0,255,153,.1)}
+.sb-refresh:active{transform:scale(0.97)}
+.sb-refresh.spinning .sb-refresh-icon{display:inline-block;animation:spin 0.6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.sb-refresh-icon{font-size:14px;display:inline-block}
+.sb-refresh-label{overflow:hidden;white-space:nowrap}
+#sidebar.collapsed .sb-refresh-label{display:none}
+#sidebar.collapsed .sb-refresh{padding:9px 4px;justify-content:center}
 
 /* ─────────────────────────────────────────────────────────────
    SECTION PANELS (replaces .tab-panel)
@@ -941,6 +959,10 @@ body::before{
   </nav>
   <div class="sb-cmd-hint">⌘K — פלטת פקודות</div>
   <div class="sb-footer">
+    <button class="sb-refresh" id="sb-refresh-btn" onclick="forceRefresh()" title="רענון מלא של הדשבורד">
+      <span class="sb-refresh-icon">↺</span>
+      <span class="sb-refresh-label">רענן עכשיו</span>
+    </button>
     <button class="sb-toggle" onclick="toggleSidebar()">◀</button>
   </div>
 </aside>
@@ -1836,6 +1858,43 @@ function _saveCardOrder(grid){
   }catch{}
 }
 initDraggable();
+
+// ═══════════════════════════════════════════════════════════════
+//   FORCE REFRESH — resets stale state and re-polls all endpoints
+// ═══════════════════════════════════════════════════════════════
+let _refreshInterval=null;
+
+function _startPolling(){
+  if(_refreshInterval)clearInterval(_refreshInterval);
+  _refreshInterval=setInterval(refresh,2500);
+}
+
+async function forceRefresh(){
+  const btn=document.getElementById('sb-refresh-btn');
+  if(btn)btn.classList.add('spinning');
+
+  // Reset last-loop sentinel so health strip flashes on next update
+  _pl=-1;
+
+  // Reset win-rate gauge sentinel
+  _wrl=-1;
+
+  try{
+    await refresh();
+  }catch(e){
+    const fd=document.getElementById('foot-dot');
+    const fm=document.getElementById('foot-msg');
+    if(fd)fd.className='dot dot-r';
+    if(fm)fm.textContent='שגיאת חיבור — נסה שוב: '+e.message;
+  }
+
+  if(btn){
+    setTimeout(()=>btn.classList.remove('spinning'),600);
+  }
+
+  // Restart polling interval in case it stalled
+  _startPolling();
+}
 
 // ═══════════════════════════════════════════════════════════════
 //   CHART.JS PnL
@@ -2963,7 +3022,7 @@ async function refresh(){
 }
 
 setInterval(()=>document.getElementById('hdr-clock').textContent=new Date().toLocaleTimeString('he-IL'),1000);
-setInterval(refresh,2500);
+_startPolling();
 tryAutoLogin();
 </script>
 </body>
