@@ -1,6 +1,7 @@
 """
 Strategy 3 — Directional Arbitrage
-Like pure arb but tilts 70/30 toward the side with stronger recent momentum.
+Like pure arb (threshold 0.995) but tilts 70/30 toward the side with stronger
+recent 5-minute momentum.
 """
 import asyncio
 from typing import List
@@ -8,6 +9,7 @@ from typing import List
 import httpx
 
 import config
+from logger import rejected_logger
 from strategies.base import Opportunity
 
 NAME = "directional_arb"
@@ -45,14 +47,25 @@ async def run(markets: List[dict], positions: dict, balance: float) -> List[Oppo
             continue
 
         total = sum(prices)
-        if total >= config.ARBITRAGE_MAX_SUM:
-            continue
-
         edge = 1.0 - total
-        if edge < 0.01:
+        question = market.get("question", "")
+
+        if total >= config.ARBITRAGE_MAX_SUM:
+            # Near-miss: prices sum to just above threshold
+            if 0 < edge < (1.0 - config.ARBITRAGE_MAX_SUM):
+                rejected_logger.log(
+                    source=NAME,
+                    reason="sum_above_threshold",
+                    market_question=question,
+                    value=total,
+                    threshold=config.ARBITRAGE_MAX_SUM,
+                    extra={"edge": round(edge, 6)},
+                )
             continue
 
-        # Fetch momentum for both tokens in parallel
+        if edge < config.ARBITRAGE_MIN_EDGE:
+            continue
+
         mom0, mom1 = await asyncio.gather(
             _momentum(tokens[0].get("token_id", "")),
             _momentum(tokens[1].get("token_id", "")),
@@ -61,9 +74,7 @@ async def run(markets: List[dict], positions: dict, balance: float) -> List[Oppo
         weights = (TILT_STRONG, TILT_WEAK) if mom0 >= mom1 else (TILT_WEAK, TILT_STRONG)
         budget = min(balance * config.MAX_POSITION_PCT, 5.0)
 
-        for i, (token, price, weight, mom) in enumerate(
-            zip(tokens, prices, weights, [mom0, mom1])
-        ):
+        for token, price, weight, mom in zip(tokens, prices, weights, [mom0, mom1]):
             opps.append(Opportunity(
                 strategy=NAME,
                 market_id=market.get("id", ""),
@@ -77,7 +88,7 @@ async def run(markets: List[dict], positions: dict, balance: float) -> List[Oppo
                     f"Dir arb: sum={total:.4f} edge={edge:.4f} "
                     f"weight={weight} mom={mom:+.4f}"
                 ),
-                market_question=market.get("question", "")[:120],
+                market_question=question[:120],
             ))
 
     return opps

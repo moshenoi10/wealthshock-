@@ -1,12 +1,13 @@
 """
 Strategy 5 — Cross Timeframe
 Group markets with the same underlying asset + price threshold but different expiry.
-If they diverge >3%, buy the lagging one.
+If they diverge >1.5% (was 3%), buy the lagging one.
 """
 import re
 from typing import List, Optional
 
 import config
+from logger import rejected_logger
 from strategies.base import Opportunity
 
 NAME = "cross_timeframe"
@@ -25,7 +26,6 @@ def _asset_key(question: str) -> Optional[str]:
 async def run(markets: List[dict], positions: dict, balance: float) -> List[Opportunity]:
     opps: List[Opportunity] = []
 
-    # Group by asset+threshold key
     groups: dict = {}
     for market in markets:
         key = _asset_key(market.get("question", ""))
@@ -60,10 +60,22 @@ async def run(markets: List[dict], positions: dict, balance: float) -> List[Oppo
                 continue
 
             divergence = abs(np_ - fp_)
+            question_near = near.get("question", "")
+            question_far = far.get("question", "")
+
             if divergence < MIN_DIVERGENCE:
+                if divergence > 0:
+                    # Near-miss: divergence exists but below entry threshold
+                    rejected_logger.log(
+                        source=NAME,
+                        reason="divergence_below_threshold",
+                        market_question=f"{question_near[:50]} vs {question_far[:50]}",
+                        value=divergence,
+                        threshold=MIN_DIVERGENCE,
+                        extra={"near_price": np_, "far_price": fp_, "key": key},
+                    )
                 continue
 
-            # Buy whichever is cheaper — it's the lagging contract
             if np_ < fp_:
                 lagging_token = near_yes
                 lagging_market = near
@@ -71,7 +83,7 @@ async def run(markets: List[dict], positions: dict, balance: float) -> List[Oppo
             else:
                 lagging_token = far_yes
                 lagging_market = far
-                ev = divergence * 0.7  # slight discount since far < near is expected
+                ev = divergence * 0.7
 
             if ev >= MIN_DIVERGENCE:
                 opps.append(Opportunity(

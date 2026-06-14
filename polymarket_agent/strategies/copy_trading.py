@@ -1,24 +1,28 @@
 """
 Strategy 6 — Copy Trading
-Score top-10 profitable wallets by win rate + PnL + recency using poly_data and
-the Polymarket API. Mirror their open positions. Stop following after 3 losses.
-Wallet rankings refresh daily.
+Score top-10 profitable wallets by win rate + recency (via Polymarket leaderboard).
+Mirror their open positions. Stop following after 3 consecutive losses.
+Rankings refresh daily.
+
+Thresholds (loosened 2026-06-14):
+  MIN_WIN_RATE: 0.44  (was 0.55  — ×0.8)
+  MIN_TRADES:   16    (was 20    — ×0.8)
 """
 import asyncio
 import json
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Dict, List, Optional
 
 import httpx
 
 import config
+from logger import rejected_logger
 from strategies.base import Opportunity
 
 NAME = "copy_trading"
 TOP_N = 10
-MIN_WIN_RATE = 0.55
-MIN_TRADES = 20
+MIN_WIN_RATE = config.COPY_TRADING_MIN_WIN_RATE   # 0.44
+MIN_TRADES = config.COPY_TRADING_MIN_TRADES        # 16
 MAX_CONSECUTIVE_LOSSES = 3
 RECENCY_DAYS = 30
 
@@ -28,7 +32,6 @@ _last_score_update: Optional[datetime] = None
 
 
 async def _fetch_leaderboard() -> List[str]:
-    """Pull top wallets from Polymarket leaderboard."""
     try:
         async with httpx.AsyncClient(timeout=20) as client:
             resp = await client.get(
@@ -37,7 +40,11 @@ async def _fetch_leaderboard() -> List[str]:
             )
             items = resp.json() if resp.status_code == 200 else []
             if isinstance(items, list):
-                return [it.get("proxyWallet") or it.get("address") for it in items if it.get("proxyWallet") or it.get("address")]
+                return [
+                    it.get("proxyWallet") or it.get("address")
+                    for it in items
+                    if it.get("proxyWallet") or it.get("address")
+                ]
     except Exception as exc:
         print(f"[COPY] Leaderboard error: {exc}")
     return []
@@ -56,6 +63,17 @@ async def _score_wallet(wallet: str) -> Optional[dict]:
             trades = resp.json().get("history", [])
 
         if len(trades) < MIN_TRADES:
+            # Near-miss: wallet exists but too few trades
+            if trades:
+                rejected_logger.log(
+                    source=NAME,
+                    reason="insufficient_trades",
+                    market_question=f"wallet {wallet[:12]}",
+                    token_id=wallet,
+                    value=float(len(trades)),
+                    threshold=float(MIN_TRADES),
+                    extra={"wallet": wallet},
+                )
             return None
 
         recent = [
@@ -69,7 +87,18 @@ async def _score_wallet(wallet: str) -> Optional[dict]:
 
         wins = sum(1 for t in recent if float(t.get("price") or 0) > 0.5)
         win_rate = wins / len(recent)
+
         if win_rate < MIN_WIN_RATE:
+            # Near-miss: wallet has trades but below win rate threshold
+            rejected_logger.log(
+                source=NAME,
+                reason="win_rate_below_threshold",
+                market_question=f"wallet {wallet[:12]}",
+                token_id=wallet,
+                value=win_rate,
+                threshold=MIN_WIN_RATE,
+                extra={"wallet": wallet, "trades": len(recent)},
+            )
             return None
 
         return {
@@ -104,7 +133,7 @@ async def update_wallet_scores():
     config.DATA_DIR.mkdir(exist_ok=True)
     config.WALLET_SCORES_FILE.write_text(json.dumps(scored, indent=2))
     _last_score_update = datetime.now(timezone.utc)
-    print(f"[COPY] Scored {len(scored)} top wallets")
+    print(f"[COPY] Scored {len(scored)} top wallets (min_win_rate={MIN_WIN_RATE:.0%}, min_trades={MIN_TRADES})")
 
 
 def _load_cached_scores():
@@ -134,7 +163,6 @@ async def run(markets: List[dict], positions: dict, balance: float) -> List[Oppo
 
     _load_cached_scores()
 
-    # Refresh rankings daily
     if _last_score_update is None or (
         datetime.now(timezone.utc) - _last_score_update
     ).total_seconds() > 86_400:

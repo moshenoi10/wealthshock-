@@ -8,6 +8,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from agent.core import AgentCore
 from logger.trade_logger import TradeLogger
+from logger import rejected_logger
 import config
 
 _agent: AgentCore = None
@@ -55,6 +56,11 @@ async def api_positions():
     if _agent is None:
         return JSONResponse([])
     return JSONResponse(_agent.get_positions())
+
+
+@app.get("/api/rejections")
+async def api_rejections():
+    return JSONResponse(rejected_logger.get_recent(200))
 
 
 @app.post("/golive")

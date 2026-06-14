@@ -1,12 +1,13 @@
 """
 Strategy 1 — Near Resolution
 Buy the leading side of markets closing in <5 minutes when it trades below 0.98.
-Minimum edge: 1.5%.
+Minimum edge: 0.5%  (was 1.5%).
 """
 from datetime import datetime, timezone
 from typing import List
 
 import config
+from logger import rejected_logger
 from strategies.base import Opportunity
 
 NAME = "near_resolution"
@@ -32,32 +33,46 @@ async def run(markets: List[dict], positions: dict, balance: float) -> List[Oppo
             if len(tokens) < 2:
                 continue
 
-            prices = {t.get("token_id"): float(t.get("price") or 0) for t in tokens}
+            question = market.get("question", "")
+
             for token in tokens:
                 price = float(token.get("price") or 0)
                 tid = token.get("token_id", "")
                 if not tid or price <= 0:
                     continue
 
-                # Leading side: price > 0.5 but still below 0.98 → buy it
-                if 0.50 < price < config.NEAR_RESOLUTION_MAX_PRICE:
-                    ev = (1.0 - price)  # expected gain per dollar
-                    if ev >= config.NEAR_RESOLUTION_MIN_EDGE:
-                        opps.append(Opportunity(
-                            strategy=NAME,
-                            market_id=market.get("id", ""),
-                            condition_id=market.get("condition_id", ""),
-                            token_id=tid,
-                            side="BUY",
-                            price=price,
-                            size=min(balance * config.MAX_POSITION_PCT, 5.0),
-                            ev=ev,
-                            reasoning=(
-                                f"Near resolution ({minutes_left:.1f}min): "
-                                f"{token.get('outcome')} @ {price:.4f}, edge={ev:.4f}"
-                            ),
-                            market_question=market.get("question", "")[:120],
-                        ))
+                if not (0.50 < price < config.NEAR_RESOLUTION_MAX_PRICE):
+                    continue
+
+                ev = 1.0 - price   # expected gain if resolves in our favour
+
+                if ev >= config.NEAR_RESOLUTION_MIN_EDGE:
+                    opps.append(Opportunity(
+                        strategy=NAME,
+                        market_id=market.get("id", ""),
+                        condition_id=market.get("condition_id", ""),
+                        token_id=tid,
+                        side="BUY",
+                        price=price,
+                        size=min(balance * config.MAX_POSITION_PCT, 5.0),
+                        ev=ev,
+                        reasoning=(
+                            f"Near resolution ({minutes_left:.1f}min): "
+                            f"{token.get('outcome')} @ {price:.4f}, edge={ev:.4f}"
+                        ),
+                        market_question=question[:120],
+                    ))
+                elif ev > 0:
+                    # Near-miss: signal exists but below entry threshold
+                    rejected_logger.log(
+                        source=NAME,
+                        reason="ev_below_min_edge",
+                        market_question=question,
+                        token_id=tid,
+                        value=ev,
+                        threshold=config.NEAR_RESOLUTION_MIN_EDGE,
+                        extra={"price": price, "minutes_left": round(minutes_left, 2)},
+                    )
         except Exception:
             continue
 

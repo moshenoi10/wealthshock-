@@ -37,6 +37,9 @@ tr:hover td{background:#111}
 .dot.warn{background:#ffcc00}
 .dot.err{background:#ff4444}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.delta-neg{color:#ff6644}.delta-pos{color:#00cc66}
+.reason{background:#1a1205;color:#cc8844;border:1px solid #cc884433;padding:1px 6px;border-radius:3px;font-size:10px}
+.src{background:#10101a;color:#8899ff;border:1px solid #8899ff33;padding:1px 6px;border-radius:3px;font-size:10px}
 </style>
 </head>
 <body>
@@ -80,6 +83,17 @@ tr:hover td{background:#111}
   </table>
 </section>
 
+<section>
+  <h2>Rejected Opportunities <span style="color:#444;font-weight:normal">(last 60 — why things almost triggered)</span></h2>
+  <table>
+    <thead><tr>
+      <th>Time</th><th>Source</th><th>Reason</th><th>Market</th>
+      <th>Value</th><th>Threshold</th><th>Delta</th>
+    </tr></thead>
+    <tbody id="rej-body"><tr><td colspan="7" class="empty">No rejections logged yet</td></tr></tbody>
+  </table>
+</section>
+
 <div class="foot">
   <div><span class="dot ok" id="dot"></span><span id="foot-txt">Connecting…</span></div>
   <div>Auto-refresh 5s</div>
@@ -93,10 +107,10 @@ const sign=(v)=>parseFloat(v)>=0?'+':'';
 
 async function refresh(){
   try{
-    const[sr,tr,pr]=await Promise.all([
-      fetch('/api/status'),fetch('/api/trades'),fetch('/api/positions')
+    const[sr,tr,pr,rr]=await Promise.all([
+      fetch('/api/status'),fetch('/api/trades'),fetch('/api/positions'),fetch('/api/rejections')
     ]);
-    const s=await sr.json(),trades=await tr.json(),pos=await pr.json();
+    const s=await sr.json(),trades=await tr.json(),pos=await pr.json(),rejs=await rr.json();
 
     const mb=document.getElementById('mode-badge');
     mb.textContent=(s.mode||'paper').toUpperCase();
@@ -167,6 +181,24 @@ async function refresh(){
         <td title="${t.reasoning}" style="color:#444;max-width:180px;overflow:hidden;
           text-overflow:ellipsis;white-space:nowrap">${(t.reasoning||'').substring(0,55)}</td>
       </tr>`).join('');
+    // Rejected opportunities
+    const rb=document.getElementById('rej-body');
+    const recentRej=[...rejs].reverse().slice(0,60);
+    rb.innerHTML=recentRej.length===0
+      ?'<tr><td colspan="7" class="empty">No rejections yet</td></tr>'
+      :recentRej.map(r=>{
+        const dCls=r.delta<0?'delta-neg':'delta-pos';
+        const sign=r.delta>=0?'+':'';
+        return`<tr>
+          <td>${new Date(r.ts).toLocaleTimeString()}</td>
+          <td><span class="src">${r.source||'?'}</span></td>
+          <td><span class="reason">${r.reason||'?'}</span></td>
+          <td title="${r.question}">${(r.question||'').substring(0,38)}${r.question?.length>38?'…':''}</td>
+          <td>${f(r.value,5)}</td>
+          <td>${f(r.threshold,5)}</td>
+          <td class="${dCls}">${sign}${f(r.delta,5)}</td>
+        </tr>`;
+      }).join('');
   } catch(e){
     document.getElementById('dot').className='dot err';
     document.getElementById('foot-txt').textContent='Connection error: '+e.message;

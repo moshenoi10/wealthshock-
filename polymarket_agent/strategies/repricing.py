@@ -1,7 +1,7 @@
 """
 Strategy 4 — Repricing / Fair Value
-Fetch BTC/ETH/SOL from CoinGecko. If Polymarket lags >2% from fair value, buy the
-undervalued side with a limit order.
+Fetch BTC/ETH/SOL from CoinGecko. If Polymarket lags >1% from fair value (was 2%),
+buy the undervalued side with a limit order.
 """
 import re
 import time
@@ -10,6 +10,7 @@ from typing import List, Optional
 import httpx
 
 import config
+from logger import rejected_logger
 from strategies.base import Opportunity
 
 NAME = "repricing"
@@ -21,6 +22,9 @@ ASSET_KEYWORDS: dict = {
     "ETH": ["ethereum", "eth"],
     "SOL": ["solana", "sol"],
 }
+
+# Keywords indicating YES = price going DOWN (inverts fair_prob)
+_BEARISH = ("dip", "fall", "drop", "crash", "below", "under", "decline", "lose")
 
 _price_cache: dict = {}
 _cache_ts: float = 0.0
@@ -72,17 +76,8 @@ def _extract_threshold(question: str) -> Optional[float]:
     return None
 
 
-# Keywords that indicate YES = price going DOWN (inverts fair_prob)
-_BEARISH_KEYWORDS = ("dip", "fall", "drop", "crash", "below", "under", "decline", "lose")
-
-
-def _is_bearish_question(question: str) -> bool:
-    ql = question.lower()
-    return any(kw in ql for kw in _BEARISH_KEYWORDS)
-
-
 def _fair_prob_above(current: float, threshold: float) -> float:
-    """P(current > threshold) — probability price stays above threshold."""
+    """P(price > threshold) at current price."""
     if threshold <= 0 or current <= 0:
         return 0.5
     r = current / threshold
@@ -107,7 +102,7 @@ async def run(markets: List[dict], positions: dict, balance: float) -> List[Oppo
             question = market.get("question", "")
             ql = question.lower()
 
-            # Skip range markets ("between X and Y") — logic doesn't apply
+            # Skip range markets — directional logic doesn't apply
             if "between" in ql and " and " in ql:
                 continue
 
@@ -123,9 +118,8 @@ async def run(markets: List[dict], positions: dict, balance: float) -> List[Oppo
             if not threshold:
                 continue
 
-            # P(price > threshold); invert for bearish questions (dip/fall/below)
             prob_above = _fair_prob_above(current, threshold)
-            bearish = _is_bearish_question(question)
+            bearish = any(kw in ql for kw in _BEARISH)
 
             for token in market.get("tokens", []):
                 tp = float(token.get("price") or 0)
@@ -134,9 +128,7 @@ async def run(markets: List[dict], positions: dict, balance: float) -> List[Oppo
                 if not tid or tp <= 0:
                     continue
 
-                # Determine fair value for this specific token
                 if "YES" in outcome:
-                    # YES = bullish (price above) unless question is bearish
                     fair = (1.0 - prob_above) if bearish else prob_above
                 elif "NO" in outcome:
                     fair = prob_above if bearish else (1.0 - prob_above)
@@ -144,6 +136,7 @@ async def run(markets: List[dict], positions: dict, balance: float) -> List[Oppo
                     continue
 
                 deviation = fair - tp
+
                 if deviation > config.REPRICING_MIN_DEVIATION:
                     direction = "bearish" if bearish else "bullish"
                     opps.append(Opportunity(
@@ -162,6 +155,23 @@ async def run(markets: List[dict], positions: dict, balance: float) -> List[Oppo
                         ),
                         market_question=question[:120],
                     ))
+                elif 0 < deviation <= config.REPRICING_MIN_DEVIATION:
+                    # Near-miss: mispricing exists but below entry threshold
+                    rejected_logger.log(
+                        source=NAME,
+                        reason="deviation_below_threshold",
+                        market_question=question,
+                        token_id=tid,
+                        value=deviation,
+                        threshold=config.REPRICING_MIN_DEVIATION,
+                        extra={
+                            "asset": asset,
+                            "current_price": current,
+                            "fair": round(fair, 4),
+                            "market_price": tp,
+                            "bearish": bearish,
+                        },
+                    )
         except Exception:
             continue
 
