@@ -1,211 +1,755 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="he" dir="rtl">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Polymarket Agent</title>
+<title>פוליממרקט — טרמינל מסחר</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Courier New',monospace;background:#0a0a0a;color:#c0c0c0;padding-bottom:40px}
-.hdr{padding:18px 24px;border-bottom:1px solid #1a1a1a;display:flex;align-items:center;gap:12px}
-.hdr h1{font-size:20px;color:#e0e0e0;letter-spacing:1px}
-.badge{padding:3px 10px;border-radius:4px;font-size:11px;font-weight:bold;letter-spacing:1px}
-.badge.paper{background:#0d2218;color:#00cc66;border:1px solid #00cc6655}
-.badge.live{background:#2a0a0a;color:#ff4444;border:1px solid #ff4444;animation:blink 1s infinite}
+:root{
+  --bg:#0a0a0a;--bg2:#0d0d0d;--bg3:#111;
+  --border:#191919;--border2:#141414;
+  --green:#00ff88;--red:#ff4444;--blue:#00aaff;--yellow:#ffcc00;
+  --dim:#444;--mid:#666;--bright:#e0e0e0;
+}
+body{font-family:'Courier New',monospace;background:var(--bg);color:#888;direction:rtl;min-height:100vh}
+
+/* Utility */
+.ltr{direction:ltr;unicode-bidi:embed}
+.green{color:var(--green)}.red{color:var(--red)}.blue{color:var(--blue)}
+.yellow{color:var(--yellow)}.dim{color:var(--dim)}.bright{color:var(--bright)}
+.bold{font-weight:bold}
+
+/* Flash animation for value updates */
+@keyframes flash{0%{opacity:.2}100%{opacity:1}}
+.flash{animation:flash .35s ease}
+@keyframes fadeSlide{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(0,255,136,.5)}50%{box-shadow:0 0 0 5px transparent}}
+
+/* ─── HEADER ─────────────────────────────────────────────────── */
+.hdr{
+  display:flex;align-items:center;gap:14px;
+  padding:10px 22px;
+  background:#060606;
+  border-bottom:1px solid var(--border);
+  position:sticky;top:0;z-index:100;
+}
+.hdr-logo{font-size:18px;color:var(--green);letter-spacing:4px;font-weight:bold}
+.hdr-sub{font-size:9px;color:#282828;letter-spacing:3px;margin-top:2px}
+.badge{padding:3px 10px;border-radius:3px;font-size:10px;font-weight:bold;letter-spacing:2px}
+.badge-paper{background:#001a0d;color:var(--green);border:1px solid rgba(0,255,136,.2)}
+.badge-live{background:#1a0000;color:var(--red);border:1px solid rgba(255,68,68,.4);animation:blink 1s infinite}
+.badge-paused{background:#1a1000;color:var(--yellow);border:1px solid rgba(255,204,0,.3)}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;padding:20px 24px}
-.card{background:#101010;border:1px solid #1e1e1e;border-radius:6px;padding:14px}
-.card .lbl{font-size:10px;color:#555;text-transform:uppercase;letter-spacing:2px;margin-bottom:6px}
-.card .val{font-size:26px;font-weight:bold}
-.pos{color:#00cc66}.neg{color:#ff4444}.neu{color:#e0e0e0}.warn{color:#ffcc00}
-section{padding:0 24px 24px}
-section h2{font-size:11px;text-transform:uppercase;letter-spacing:2px;color:#444;
-  padding:16px 0 10px;border-bottom:1px solid #1a1a1a;margin-bottom:0}
-table{width:100%;border-collapse:collapse;font-size:11px}
-th{text-align:left;padding:8px 10px;color:#444;font-weight:normal;text-transform:uppercase;letter-spacing:1px}
-td{padding:7px 10px;border-bottom:1px solid #0d0d0d}
-tr:hover td{background:#111}
-.tag{display:inline-block;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:bold}
-.tag.buy{background:#0a1e12;color:#00cc66;border:1px solid #00cc6644}
-.tag.sell{background:#1e0a0a;color:#ff4444;border:1px solid #ff444444}
-.strat{background:#111;color:#8899ff;border:1px solid #8899ff33;padding:1px 6px;border-radius:3px;font-size:10px}
-.empty{color:#333;text-align:center;padding:24px}
-.foot{position:fixed;bottom:0;left:0;right:0;background:#080808;border-top:1px solid #1a1a1a;
-  padding:7px 24px;display:flex;justify-content:space-between;font-size:10px;color:#444}
-.dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px}
-.dot.ok{background:#00cc66;animation:pulse 2s infinite}
-.dot.warn{background:#ffcc00}
-.dot.err{background:#ff4444}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
-.delta-neg{color:#ff6644}.delta-pos{color:#00cc66}
-.reason{background:#1a1205;color:#cc8844;border:1px solid #cc884433;padding:1px 6px;border-radius:3px;font-size:10px}
-.src{background:#10101a;color:#8899ff;border:1px solid #8899ff33;padding:1px 6px;border-radius:3px;font-size:10px}
+.hdr-spacer{flex:1}
+.hdr-time{font-size:9px;color:#282828}
+
+/* ─── HEALTH STRIP ───────────────────────────────────────────── */
+.health{display:flex;background:#060606;border-bottom:1px solid #0d0d0d}
+.hitem{
+  flex:1;padding:9px 14px;border-left:1px solid #0d0d0d;
+  display:flex;flex-direction:column;align-items:center;
+}
+.hitem:last-child{border-left:none}
+.hlbl{font-size:8px;color:#2a2a2a;text-transform:uppercase;letter-spacing:2px;margin-bottom:4px}
+.hval{font-size:15px;font-weight:bold;transition:color .3s}
+
+/* ─── MAIN LAYOUT ────────────────────────────────────────────── */
+.main{padding:14px;display:grid;gap:14px}
+
+/* ─── STAT CARDS ─────────────────────────────────────────────── */
+.stats-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+@media(max-width:1000px){.stats-grid{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:600px){.stats-grid{grid-template-columns:repeat(2,1fr)}}
+.scard{
+  background:var(--bg2);
+  border:1px solid var(--border);
+  border-radius:4px;
+  padding:14px 16px;
+}
+.scard-lbl{font-size:8px;color:#2d2d2d;text-transform:uppercase;letter-spacing:2.5px;margin-bottom:8px}
+.scard-val{font-size:20px;font-weight:bold;transition:color .4s}
+
+/* ─── PANEL ──────────────────────────────────────────────────── */
+.panel{background:var(--bg2);border:1px solid var(--border);border-radius:4px;overflow:hidden}
+.phdr{
+  padding:9px 16px;border-bottom:1px solid var(--border2);
+  display:flex;align-items:center;justify-content:space-between;
+  font-size:8px;color:#2d2d2d;text-transform:uppercase;letter-spacing:2px;
+}
+.phdr-right{color:#1e1e1e;font-size:8px}
+.pbody{padding:14px}
+
+/* ─── TWO-COLUMN ROWS ────────────────────────────────────────── */
+.row2{display:grid;grid-template-columns:2fr 1fr;gap:14px}
+.row2-eq{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.row3-activity{display:grid;grid-template-columns:1.2fr .8fr;gap:14px}
+@media(max-width:900px){.row2,.row2-eq,.row3-activity{grid-template-columns:1fr}}
+
+/* ─── CHART ──────────────────────────────────────────────────── */
+.chart-wrap{height:200px;padding:12px 14px 8px;position:relative}
+
+/* ─── WIN RATE GAUGE ──────────────────────────────────────────── */
+.gauge-wrap{display:flex;flex-direction:column;align-items:center;padding:18px 12px}
+.gauge-svg{transform:rotate(-90deg)}
+.gauge-center{text-align:center;margin-top:10px}
+.gauge-num{font-size:34px;font-weight:bold;transition:color .5s}
+.gauge-lbl-txt{font-size:8px;color:#282828;letter-spacing:3px;margin-top:3px}
+.gauge-sub{font-size:10px;color:var(--dim);margin-top:6px}
+
+/* ─── STRATEGY PANEL ──────────────────────────────────────────── */
+.srow{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #0d0d0d}
+.srow:last-child{border-bottom:none}
+.srow-name{font-size:9px;color:#8899ff;min-width:120px;text-align:right;flex-shrink:0}
+.srow-bar-bg{flex:1;height:3px;background:#141414;border-radius:2px;overflow:hidden;direction:ltr;min-width:60px}
+.srow-bar{height:100%;border-radius:2px;transition:width .6s ease}
+.srow-stats{font-size:9px;color:var(--dim);min-width:90px;text-align:left;direction:ltr;flex-shrink:0}
+.srow-pnl{font-size:10px;font-weight:bold;min-width:56px;text-align:left;direction:ltr;flex-shrink:0;transition:color .3s}
+
+/* ─── MARKET SCANNER ──────────────────────────────────────────── */
+.scan-item{padding:10px 0;border-bottom:1px solid #0d0d0d}
+.scan-item:last-child{border-bottom:none}
+.scan-q{font-size:10px;color:#bbb;margin-bottom:6px;line-height:1.3}
+.scan-meta{display:flex;align-items:center;gap:8px;font-size:9px}
+.scan-src{color:#333;flex-shrink:0}
+.prog-bg{flex:1;height:5px;background:#0f0f0f;border-radius:3px;overflow:hidden;direction:ltr}
+.prog-fill{height:100%;background:var(--green);border-radius:3px;transition:width .5s}
+.prog-pct{font-size:9px;color:var(--green);direction:ltr;min-width:34px;text-align:left;flex-shrink:0}
+.scan-reason{font-size:8px;color:#2d2d2d;flex-shrink:0;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ─── POSITION CARDS ──────────────────────────────────────────── */
+.pos-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.pos-card{
+  background:var(--bg2);border:1px solid var(--border);border-radius:4px;
+  padding:14px;position:relative;overflow:hidden;
+}
+.pos-card::after{
+  content:'';position:absolute;top:0;right:0;
+  width:3px;height:100%;
+}
+.pos-card.profit::after{background:var(--green)}
+.pos-card.loss::after{background:var(--red)}
+.pos-card.flat::after{background:#2a2a2a}
+.pos-strat-tag{
+  font-size:8px;color:#8899ff;letter-spacing:1px;
+  border:1px solid rgba(136,153,255,.2);padding:1px 5px;border-radius:2px;
+  display:inline-block;margin-bottom:8px;
+}
+.pos-q{font-size:10px;color:#ccc;margin-bottom:10px;line-height:1.4;min-height:28px}
+.pos-row{display:flex;justify-content:space-between;margin-bottom:3px}
+.pos-k{font-size:9px;color:#333}
+.pos-v{font-size:9px;color:#888;direction:ltr}
+.pos-pnl-big{font-size:20px;font-weight:bold;margin:10px 0 4px;direction:ltr;transition:color .4s}
+.pos-pct{font-size:10px;color:var(--dim);direction:ltr}
+.sparkline{margin-top:10px;direction:ltr;overflow:hidden}
+
+/* ─── ACTIVITY FEED ───────────────────────────────────────────── */
+.feed{height:320px;overflow-y:auto}
+.feed::-webkit-scrollbar{width:3px}
+.feed::-webkit-scrollbar-thumb{background:#1a1a1a}
+.feed-item{
+  display:flex;gap:8px;align-items:flex-start;
+  padding:6px 14px;border-bottom:1px solid #0a0a0a;
+  animation:fadeSlide .25s ease;
+}
+.feed-item:hover{background:#0c0c0c}
+.feed-ts{font-size:8px;color:#222;white-space:nowrap;direction:ltr;flex-shrink:0;margin-top:1px}
+.feed-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0;margin-top:3px}
+.feed-dot.trade{background:var(--green);animation:pulse 2s infinite}
+.feed-dot.reject{background:#222}
+.feed-dot.loop{background:#003366}
+.feed-dot.error{background:var(--red)}
+.feed-msg{font-size:10px;color:#555;flex:1;line-height:1.4}
+.feed-msg.trade{color:var(--green)}
+.feed-msg.error{color:var(--red)}
+
+/* ─── REJECTIONS TABLE ────────────────────────────────────────── */
+.rej-scroll{height:320px;overflow-y:auto}
+.rej-scroll::-webkit-scrollbar{width:3px}
+.rej-scroll::-webkit-scrollbar-thumb{background:#1a1a1a}
+table{width:100%;border-collapse:collapse}
+th{
+  text-align:right;padding:7px 12px;
+  font-size:8px;color:#222;text-transform:uppercase;letter-spacing:1px;
+  border-bottom:1px solid var(--border2);
+  position:sticky;top:0;background:var(--bg2);z-index:1;
+}
+td{padding:6px 12px;border-bottom:1px solid #0a0a0a;font-size:9px;vertical-align:middle}
+tr:hover td{background:#0d0d0d}
+.tag-reason{
+  display:inline-block;padding:1px 5px;border-radius:2px;font-size:8px;
+  background:#1a1000;color:#cc8844;border:1px solid rgba(204,136,68,.25);
+  max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  vertical-align:middle;
+}
+.tag-src{
+  display:inline-block;padding:1px 5px;border-radius:2px;font-size:8px;
+  background:#10101a;color:#8899ff;border:1px solid rgba(136,153,255,.25);
+}
+.delta-neg{color:#ff6644}.delta-pos{color:var(--green)}
+
+/* ─── EMPTY ───────────────────────────────────────────────────── */
+.empty{text-align:center;padding:30px;color:#1e1e1e;font-size:10px}
+
+/* ─── STATUS DOT ──────────────────────────────────────────────── */
+.sdot{display:inline-block;width:6px;height:6px;border-radius:50%;vertical-align:middle;margin-left:5px}
+.sdot-green{background:var(--green);animation:pulse 2.5s infinite}
+.sdot-yellow{background:var(--yellow)}
+.sdot-red{background:var(--red)}
+
+/* ─── FOOTER ──────────────────────────────────────────────────── */
+.foot{
+  padding:7px 22px;border-top:1px solid #0d0d0d;
+  display:flex;justify-content:space-between;align-items:center;
+  font-size:9px;color:#222;background:#060606;
+}
 </style>
 </head>
 <body>
 
+<!-- HEADER -->
 <div class="hdr">
-  <h1>POLYMARKET AGENT</h1>
-  <span class="badge paper" id="mode-badge">PAPER</span>
-  <span style="color:#333;font-size:11px;margin-left:auto" id="last-upd">—</span>
+  <div>
+    <div class="hdr-logo">POLYMARKET</div>
+    <div class="hdr-sub">סוכן מסחר אוטונומי</div>
+  </div>
+  <span id="mode-badge" class="badge badge-paper">PAPER</span>
+  <span id="pause-badge" class="badge badge-paused" style="display:none">⏸ מושהה</span>
+  <div class="hdr-spacer"></div>
+  <span class="hdr-time" id="hdr-time">—</span>
 </div>
 
-<div class="grid">
-  <div class="card"><div class="lbl">Balance</div><div class="val neu" id="s-balance">—</div></div>
-  <div class="card"><div class="lbl">Total PnL</div><div class="val" id="s-tpnl">—</div></div>
-  <div class="card"><div class="lbl">Daily PnL</div><div class="val" id="s-dpnl">—</div></div>
-  <div class="card"><div class="lbl">Unrealized</div><div class="val" id="s-upnl">—</div></div>
-  <div class="card"><div class="lbl">Positions</div><div class="val neu" id="s-pos">—</div></div>
-  <div class="card"><div class="lbl">Trades Today</div><div class="val neu" id="s-trades">—</div></div>
-  <div class="card"><div class="lbl">Loop #</div><div class="val neu" id="s-loop">—</div></div>
-  <div class="card"><div class="lbl">Errors</div><div class="val" id="s-err">—</div></div>
+<!-- HEALTH STRIP -->
+<div class="health">
+  <div class="hitem"><div class="hlbl">לולאה</div><div class="hval bright" id="h-loop">—</div></div>
+  <div class="hitem"><div class="hlbl">זמן פעילות</div><div class="hval bright ltr" id="h-uptime">—</div></div>
+  <div class="hitem"><div class="hlbl">שגיאות</div><div class="hval" id="h-err">—</div></div>
+  <div class="hitem"><div class="hlbl">עסקות היום</div><div class="hval bright" id="h-trades">—</div></div>
+  <div class="hitem"><div class="hlbl">פוזיציות</div><div class="hval bright" id="h-pos">—</div></div>
+  <div class="hitem"><div class="hlbl">מצב</div><div class="hval" id="h-status">—</div></div>
 </div>
 
-<section>
-  <h2>Open Positions</h2>
-  <table>
-    <thead><tr>
-      <th>Market</th><th>Strategy</th><th>Side</th>
-      <th>Entry</th><th>Current</th><th>Size</th><th>Unreal. PnL</th>
-    </tr></thead>
-    <tbody id="pos-body"><tr><td colspan="7" class="empty">No open positions</td></tr></tbody>
-  </table>
-</section>
+<!-- MAIN -->
+<div class="main">
 
-<section>
-  <h2>Recent Trades</h2>
-  <table>
-    <thead><tr>
-      <th>Time</th><th>Strategy</th><th>Market</th><th>Side</th>
-      <th>Price</th><th>Size</th><th>PnL</th><th>Reasoning</th>
-    </tr></thead>
-    <tbody id="tr-body"><tr><td colspan="8" class="empty">No trades yet</td></tr></tbody>
-  </table>
-</section>
+  <!-- STAT CARDS -->
+  <div class="stats-grid">
+    <div class="scard">
+      <div class="scard-lbl">יתרה</div>
+      <div class="scard-val bright ltr" id="s-balance">—</div>
+    </div>
+    <div class="scard">
+      <div class="scard-lbl">PnL כולל</div>
+      <div class="scard-val ltr" id="s-tpnl">—</div>
+    </div>
+    <div class="scard">
+      <div class="scard-lbl">PnL יומי</div>
+      <div class="scard-val ltr" id="s-dpnl">—</div>
+    </div>
+    <div class="scard">
+      <div class="scard-lbl">לא ממומש</div>
+      <div class="scard-val ltr" id="s-upnl">—</div>
+    </div>
+    <div class="scard">
+      <div class="scard-lbl">שווי תיק</div>
+      <div class="scard-val bright ltr" id="s-portfolio">—</div>
+    </div>
+  </div>
 
-<section>
-  <h2>Rejected Opportunities <span style="color:#444;font-weight:normal">(last 60 — why things almost triggered)</span></h2>
-  <table>
-    <thead><tr>
-      <th>Time</th><th>Source</th><th>Reason</th><th>Market</th>
-      <th>Value</th><th>Threshold</th><th>Delta</th>
-    </tr></thead>
-    <tbody id="rej-body"><tr><td colspan="7" class="empty">No rejections logged yet</td></tr></tbody>
-  </table>
-</section>
+  <!-- PnL CHART + WIN RATE GAUGE -->
+  <div class="row2">
+    <div class="panel">
+      <div class="phdr">
+        <span>ביצועי PnL — 24 שעות אחרונות</span>
+        <span class="phdr-right ltr" id="chart-range">—</span>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="pnl-chart"></canvas>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="phdr"><span>אחוז הצלחה</span><span class="phdr-right ltr" id="wr-trades">0 עסקות</span></div>
+      <div class="gauge-wrap">
+        <svg class="gauge-svg" width="130" height="130" viewBox="0 0 130 130">
+          <circle cx="65" cy="65" r="54" fill="none" stroke="#111" stroke-width="10"/>
+          <circle id="gauge-arc" cx="65" cy="65" r="54" fill="none"
+            stroke="#00ff88" stroke-width="10"
+            stroke-dasharray="0 339.3"
+            stroke-linecap="round"
+            style="transition:stroke-dasharray 1.2s cubic-bezier(.4,0,.2,1),stroke .5s"/>
+        </svg>
+        <div class="gauge-center">
+          <div class="gauge-num green" id="gauge-pct">—</div>
+          <div class="gauge-lbl-txt">WIN RATE</div>
+          <div class="gauge-sub" id="gauge-sub">ממתין לעסקות...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- STRATEGY BREAKDOWN + MARKET SCANNER -->
+  <div class="row2-eq">
+    <div class="panel">
+      <div class="phdr"><span>פירוט לפי אסטרטגיה</span></div>
+      <div class="pbody" id="strat-panel">
+        <div class="empty">טוען נתונים...</div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="phdr">
+        <span>סורק שוק — קרובים להפעלה</span>
+        <span class="phdr-right ltr" id="scanner-ts">—</span>
+      </div>
+      <div class="pbody" id="scanner-panel">
+        <div class="empty">ממתין לנתונים...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- POSITION CARDS -->
+  <div class="panel">
+    <div class="phdr"><span>פוזיציות פתוחות</span><span class="phdr-right ltr" id="pos-count">0</span></div>
+    <div class="pbody">
+      <div class="pos-grid" id="pos-cards">
+        <div class="empty" style="grid-column:1/-1">אין פוזיציות פתוחות</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ACTIVITY FEED + REJECTIONS -->
+  <div class="row3-activity">
+    <div class="panel">
+      <div class="phdr">
+        <span>פיד פעילות חי</span>
+        <span><span class="sdot sdot-green" id="feed-dot"></span></span>
+      </div>
+      <div class="feed" id="activity-feed">
+        <div class="empty">ממתין לאירועים...</div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="phdr"><span>הזדמנויות שנדחו</span><span class="phdr-right ltr" id="rej-count">—</span></div>
+      <div class="rej-scroll">
+        <table>
+          <thead>
+            <tr><th>שעה</th><th>מקור</th><th>סיבה</th><th>שוק</th><th class="ltr">Δ</th></tr>
+          </thead>
+          <tbody id="rej-body">
+            <tr><td colspan="5" class="empty">אין דחיות עדיין</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /main -->
 
 <div class="foot">
-  <div><span class="dot ok" id="dot"></span><span id="foot-txt">Connecting…</span></div>
-  <div>Auto-refresh 5s</div>
-  <div>Polymarket Agent v1.0</div>
+  <div><span class="sdot sdot-green" id="foot-dot"></span><span id="foot-msg">מתחבר...</span></div>
+  <div class="ltr">Polymarket Agent v2.0 · רענון כל 2.5 שניות</div>
 </div>
 
 <script>
-const f=(v,d=4)=>v==null?'—':parseFloat(v).toFixed(d);
-const cls=(v)=>parseFloat(v)>0?'pos':parseFloat(v)<0?'neg':'neu';
-const sign=(v)=>parseFloat(v)>=0?'+':'';
-
-async function refresh(){
-  try{
-    const[sr,tr,pr,rr]=await Promise.all([
-      fetch('/api/status'),fetch('/api/trades'),fetch('/api/positions'),fetch('/api/rejections')
-    ]);
-    const s=await sr.json(),trades=await tr.json(),pos=await pr.json(),rejs=await rr.json();
-
-    const mb=document.getElementById('mode-badge');
-    mb.textContent=(s.mode||'paper').toUpperCase();
-    mb.className='badge '+(s.mode==='live'?'live':'paper');
-
-    document.getElementById('s-balance').textContent='$'+f(s.balance,2);
-
-    const tp=document.getElementById('s-tpnl');
-    tp.textContent=sign(s.total_pnl)+'$'+f(s.total_pnl,2);
-    tp.className='val '+cls(s.total_pnl);
-
-    const dp=document.getElementById('s-dpnl');
-    dp.textContent=sign(s.daily_pnl)+'$'+f(s.daily_pnl,2);
-    dp.className='val '+cls(s.daily_pnl);
-
-    const up=document.getElementById('s-upnl');
-    up.textContent=sign(s.unrealized_pnl)+'$'+f(s.unrealized_pnl,2);
-    up.className='val '+cls(s.unrealized_pnl);
-
-    document.getElementById('s-pos').textContent=s.open_positions||0;
-    document.getElementById('s-trades').textContent=s.trades_today||0;
-    document.getElementById('s-loop').textContent=s.loop_count||0;
-
-    const er=document.getElementById('s-err');
-    er.textContent=s.errors_today||0;
-    er.className='val '+(s.errors_today>0?'neg':'neu');
-
-    document.getElementById('last-upd').textContent=
-      'Updated '+new Date().toLocaleTimeString()+' · Loop #'+(s.loop_count||0);
-
-    const dot=document.getElementById('dot');
-    const ftxt=document.getElementById('foot-txt');
-    if(s.is_paused){
-      dot.className='dot warn';
-      ftxt.textContent='PAUSED — drawdown limit reached';
-    } else {
-      dot.className='dot ok';
-      ftxt.textContent=s.mode==='live'?'LIVE TRADING ACTIVE':'Paper trading — send POST /golive to go live';
+// ─── CHART.JS PNL LINE ─────────────────────────────────────────
+const ctx = document.getElementById('pnl-chart').getContext('2d');
+const pnlChart = new Chart(ctx, {
+  type: 'line',
+  data: { labels: [], datasets: [{
+    data: [],
+    borderColor: '#00ff88',
+    backgroundColor: 'rgba(0,255,136,.04)',
+    borderWidth: 1.5,
+    pointRadius: 0,
+    tension: 0.35,
+    fill: true,
+  }]},
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: { duration: 0 },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: '#111',
+        borderColor: '#1e1e1e',
+        borderWidth: 1,
+        titleColor: '#333',
+        bodyColor: '#00ff88',
+        callbacks: {
+          label: c => '$' + c.raw.toFixed(4),
+          title: c => c[0].label ? c[0].label.substring(11,19) : '',
+        }
+      }
+    },
+    scales: {
+      x: {
+        ticks: { color: '#252525', font: { size: 8, family: 'Courier New' }, maxTicksLimit: 8,
+          callback(val) {
+            const lbl = this.getLabelForValue(val);
+            return lbl ? lbl.substring(11,16) : '';
+          }
+        },
+        grid: { color: '#0f0f0f' },
+        border: { color: '#141414' },
+      },
+      y: {
+        ticks: { color: '#252525', font: { size: 8, family: 'Courier New' }, callback: v => '$' + v.toFixed(2) },
+        grid: { color: '#0f0f0f' },
+        border: { color: '#141414' },
+      }
     }
+  }
+});
 
-    // Positions
-    const pb=document.getElementById('pos-body');
-    pb.innerHTML=pos.length===0
-      ?'<tr><td colspan="7" class="empty">No open positions</td></tr>'
-      :pos.map(p=>`<tr>
-        <td title="${p.market_question}">${(p.market_question||p.token_id||'').substring(0,38)}…</td>
-        <td><span class="strat">${p.strategy||'?'}</span></td>
-        <td><span class="tag buy">BUY</span></td>
-        <td>${f(p.entry_price)}</td>
-        <td>${f(p.current_price)}</td>
-        <td>$${f(p.size,2)}</td>
-        <td class="${cls(p.unrealized_pnl)}">${sign(p.unrealized_pnl)}$${f(p.unrealized_pnl,4)}</td>
-      </tr>`).join('');
+// ─── HELPERS ────────────────────────────────────────────────────
+const f  = (v, d=4) => v == null ? '—' : parseFloat(v).toFixed(d);
+const f2 = v => f(v, 2);
+const sgn = v => parseFloat(v) >= 0 ? '+' : '';
+const vcls = v => parseFloat(v) > 0 ? 'green' : parseFloat(v) < 0 ? 'red' : 'bright';
 
-    // Trades
-    const tb=document.getElementById('tr-body');
-    const recent=[...trades].reverse().slice(0,40);
-    tb.innerHTML=recent.length===0
-      ?'<tr><td colspan="8" class="empty">No trades yet — waiting for first opportunity…</td></tr>'
-      :recent.map(t=>`<tr>
-        <td>${new Date(t.logged_at||t.timestamp||0).toLocaleTimeString()}</td>
-        <td><span class="strat">${t.strategy||'?'}</span></td>
-        <td title="${t.market_question}">${(t.market_question||'').substring(0,32)}${(t.market_question||'').length>32?'…':''}</td>
-        <td><span class="tag ${(t.side||'buy').toLowerCase()}">${t.side||'?'}</span></td>
-        <td>${f(t.price)}</td>
-        <td>$${f(t.size,2)}</td>
-        <td class="${t.pnl!=null?cls(t.pnl):'neu'}">${t.pnl!=null?sign(t.pnl)+'$'+f(t.pnl,4):'open'}</td>
-        <td title="${t.reasoning}" style="color:#444;max-width:180px;overflow:hidden;
-          text-overflow:ellipsis;white-space:nowrap">${(t.reasoning||'').substring(0,55)}</td>
-      </tr>`).join('');
-    // Rejected opportunities
-    const rb=document.getElementById('rej-body');
-    const recentRej=[...rejs].reverse().slice(0,60);
-    rb.innerHTML=recentRej.length===0
-      ?'<tr><td colspan="7" class="empty">No rejections yet</td></tr>'
-      :recentRej.map(r=>{
-        const dCls=r.delta<0?'delta-neg':'delta-pos';
-        const sign=r.delta>=0?'+':'';
-        return`<tr>
-          <td>${new Date(r.ts).toLocaleTimeString()}</td>
-          <td><span class="src">${r.source||'?'}</span></td>
-          <td><span class="reason">${r.reason||'?'}</span></td>
-          <td title="${r.question}">${(r.question||'').substring(0,38)}${r.question?.length>38?'…':''}</td>
-          <td>${f(r.value,5)}</td>
-          <td>${f(r.threshold,5)}</td>
-          <td class="${dCls}">${sign}${f(r.delta,5)}</td>
-        </tr>`;
-      }).join('');
-  } catch(e){
-    document.getElementById('dot').className='dot err';
-    document.getElementById('foot-txt').textContent='Connection error: '+e.message;
+const fmtTime = iso => {
+  if (!iso) return '—';
+  try { return new Date(iso).toLocaleTimeString('he-IL'); } catch { return '—'; }
+};
+const fmtUptime = s => {
+  if (!s) return '0m';
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  return h > 0 ? `${h}ש׳ ${m}ד׳` : `${m}ד׳`;
+};
+
+function setVal(id, text, cls) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const s = String(text);
+  if (el.textContent !== s) {
+    el.textContent = s;
+    el.className = el.className.replace(/\b(green|red|bright|yellow|dim)\b/g, '').trim();
+    if (cls) el.classList.add(cls);
+    el.classList.add('flash');
+    setTimeout(() => el.classList.remove('flash'), 400);
   }
 }
+
+const STRAT_HE = {
+  near_resolution:  'קרוב לפקיעה',
+  pure_arbitrage:   'ארביטראז׳ טהור',
+  directional_arb:  'ארביטראז׳ כיווני',
+  repricing:        'תמחור מחדש',
+  cross_timeframe:  'רב-זמני',
+  copy_trading:     'העתקת עסקאות',
+};
+const STRAT_ABBR = {
+  near_resolution:'NR', pure_arbitrage:'PA', directional_arb:'DA',
+  repricing:'RP', cross_timeframe:'CT', copy_trading:'CP',
+};
+
+// ─── GAUGE ──────────────────────────────────────────────────────
+let _gaugeVal = -1;
+function updateGauge(wr, totalTrades, wins) {
+  if (wr === _gaugeVal) return;
+  _gaugeVal = wr;
+  const C = 2 * Math.PI * 54; // circumference ≈ 339.3
+  const filled = C * Math.max(0, Math.min(1, wr));
+  const arc = document.getElementById('gauge-arc');
+  arc.style.strokeDasharray = `${filled} ${C}`;
+  const color = wr >= 0.55 ? '#00ff88' : wr >= 0.4 ? '#ffcc00' : '#ff4444';
+  arc.style.stroke = color;
+  const pctEl = document.getElementById('gauge-pct');
+  pctEl.textContent = (wr * 100).toFixed(0) + '%';
+  pctEl.className = 'gauge-num ' + (wr >= 0.55 ? 'green' : wr >= 0.4 ? 'yellow' : 'red');
+  document.getElementById('gauge-sub').textContent = `${wins} ניצחון מתוך ${totalTrades}`;
+  document.getElementById('wr-trades').textContent = totalTrades + ' עסקות';
+}
+
+// ─── STRATEGY PANEL ─────────────────────────────────────────────
+function updateStrategies(stats) {
+  const el = document.getElementById('strat-panel');
+  if (!stats || !Object.keys(stats).length) {
+    el.innerHTML = '<div class="empty">אין נתונים עדיין</div>';
+    return;
+  }
+  const maxT = Math.max(1, ...Object.values(stats).map(s => s.trades || 0));
+  el.innerHTML = Object.entries(stats).map(([name, s]) => {
+    const t = s.trades || 0, w = s.wins || 0, pnl = s.pnl || 0;
+    const wr = t > 0 ? w / t : 0;
+    const barW = ((t / maxT) * 100).toFixed(1);
+    const barColor = pnl >= 0 ? '#00ff88' : '#ff4444';
+    const pnlCls = pnl > 0 ? 'green' : pnl < 0 ? 'red' : 'dim';
+    const pnlStr = (pnl >= 0 ? '+' : '') + '$' + Math.abs(pnl).toFixed(4);
+    return `<div class="srow">
+      <div class="srow-name">${STRAT_HE[name] || name}</div>
+      <div class="srow-bar-bg"><div class="srow-bar" style="width:${barW}%;background:${barColor}"></div></div>
+      <div class="srow-stats">${t} | ${(wr*100).toFixed(0)}%</div>
+      <div class="srow-pnl ${pnlCls}">${pnlStr}</div>
+    </div>`;
+  }).join('');
+}
+
+// ─── MARKET SCANNER ─────────────────────────────────────────────
+function updateScanner(rejs) {
+  const el = document.getElementById('scanner-panel');
+  if (!rejs || !rejs.length) {
+    el.innerHTML = '<div class="empty">אין נתונים</div>';
+    return;
+  }
+  const now = Date.now();
+  const recent = rejs.filter(r => now - new Date(r.ts).getTime() < 900_000 && r.delta < 0);
+  const closest = [...recent].sort((a, b) => b.delta - a.delta).slice(0, 5);
+
+  if (!closest.length) {
+    el.innerHTML = '<div class="empty">אין הזדמנויות קרובות ב-15 דקות האחרונות</div>';
+    document.getElementById('scanner-ts').textContent = fmtTime(rejs[rejs.length-1]?.ts);
+    return;
+  }
+
+  el.innerHTML = closest.map(r => {
+    const pctClose = Math.max(0, Math.min(100,
+      (1 - Math.abs(r.delta) / Math.max(r.threshold, 0.0001)) * 100
+    )).toFixed(0);
+    const q = (r.question || r.market_question || '');
+    return `<div class="scan-item">
+      <div class="scan-q">${q.substring(0,60)}${q.length>60?'…':''}</div>
+      <div class="scan-meta">
+        <span class="scan-src">${fmtTime(r.ts)}</span>
+        <div class="prog-bg"><div class="prog-fill" style="width:${pctClose}%"></div></div>
+        <span class="prog-pct">${pctClose}%</span>
+        <span class="scan-reason">${(r.reason||'').split(':')[0]}</span>
+      </div>
+    </div>`;
+  }).join('');
+  document.getElementById('scanner-ts').textContent = fmtTime(new Date().toISOString());
+}
+
+// ─── POSITION CARDS ─────────────────────────────────────────────
+function makeSpark(priceHistory, upnl) {
+  if (!priceHistory || priceHistory.length < 2) return '';
+  const ph = priceHistory;
+  const minP = Math.min(...ph), maxP = Math.max(...ph);
+  const range = maxP - minP || 0.0005;
+  const W = 220, H = 32;
+  const pts = ph.map((v, i) => {
+    const x = (i / (ph.length - 1)) * W;
+    const y = H - ((v - minP) / range) * (H - 4) - 2;
+    return `${x},${y}`;
+  }).join(' ');
+  const color = upnl >= 0 ? '#00ff88' : '#ff4444';
+  return `<svg class="sparkline" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+    <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5"
+      stroke-linecap="round" stroke-linejoin="round" opacity="0.7"/>
+  </svg>`;
+}
+
+function updatePositions(positions) {
+  const grid = document.getElementById('pos-cards');
+  document.getElementById('pos-count').textContent = (positions || []).length + ' פתוחות';
+  if (!positions || !positions.length) {
+    grid.innerHTML = '<div class="empty" style="grid-column:1/-1">אין פוזיציות פתוחות</div>';
+    return;
+  }
+  grid.innerHTML = positions.map(p => {
+    const upnl = p.unrealized_pnl || 0;
+    const pct_ch = p.entry_price > 0 ? (p.current_price - p.entry_price) / p.entry_price * 100 : 0;
+    const cardCls = upnl > 0.001 ? 'profit' : upnl < -0.001 ? 'loss' : 'flat';
+    const pnlCls = upnl > 0 ? 'green' : upnl < 0 ? 'red' : 'bright';
+    const q = p.market_question || p.token_id || '';
+    return `<div class="pos-card ${cardCls}">
+      <span class="pos-strat-tag">${STRAT_ABBR[p.strategy] || p.strategy || '?'}</span>
+      <div class="pos-q">${q.substring(0,65)}${q.length>65?'…':''}</div>
+      <div class="pos-row"><span class="pos-k">כניסה</span><span class="pos-v">${f(p.entry_price)}</span></div>
+      <div class="pos-row"><span class="pos-k">נוכחי</span><span class="pos-v">${f(p.current_price)}</span></div>
+      <div class="pos-row"><span class="pos-k">גודל</span><span class="pos-v">$${f2(p.size)}</span></div>
+      <div class="pos-pnl-big ${pnlCls}">${sgn(upnl)}$${f(upnl,4)}</div>
+      <div class="pos-pct ${pnlCls}">${sgn(pct_ch)}${pct_ch.toFixed(2)}%</div>
+      ${makeSpark(p.price_history, upnl)}
+    </div>`;
+  }).join('');
+}
+
+// ─── ACTIVITY FEED ───────────────────────────────────────────────
+let _knownActivityTs = new Set();
+function updateFeed(activity, trades) {
+  const feed = document.getElementById('activity-feed');
+
+  // Build combined list: agent activity + recent trades
+  const tradeItems = trades.slice(0, 30).map(t => ({
+    ts: t.logged_at || t.timestamp || '',
+    type: 'trade',
+    msg: `עסקה ✓ ${t.strategy||'?'} | ${(t.market_question||'').substring(0,40)} | ${t.side||'?'} @${f(t.price)}`,
+  }));
+
+  const all = [...activity, ...tradeItems]
+    .filter(x => x.ts)
+    .sort((a, b) => new Date(b.ts) - new Date(a.ts))
+    .slice(0, 100);
+
+  if (!all.length) {
+    feed.innerHTML = '<div class="empty">ממתין לאירועים...</div>';
+    return;
+  }
+
+  feed.innerHTML = all.map(item => {
+    const t = item.type || 'loop';
+    const dotCls = t === 'trade' ? 'trade' : t === 'error' ? 'error' : t === 'reject' ? 'reject' : 'loop';
+    const msgCls = t === 'trade' ? 'trade' : t === 'error' ? 'error' : '';
+    return `<div class="feed-item">
+      <span class="feed-ts">${fmtTime(item.ts)}</span>
+      <div class="feed-dot ${dotCls}"></div>
+      <span class="feed-msg ${msgCls}">${item.msg || ''}</span>
+    </div>`;
+  }).join('');
+}
+
+// ─── REJECTIONS TABLE ────────────────────────────────────────────
+function updateRejections(rejs) {
+  const tbody = document.getElementById('rej-body');
+  document.getElementById('rej-count').textContent = (rejs||[]).length + ' סה״כ';
+  const recent = [...(rejs||[])].reverse().slice(0, 80);
+  if (!recent.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty">אין דחיות עדיין</td></tr>';
+    return;
+  }
+  tbody.innerHTML = recent.map(r => {
+    const dCls = r.delta < 0 ? 'delta-neg' : 'delta-pos';
+    const ds = r.delta >= 0 ? '+' : '';
+    const q = r.question || r.market_question || '';
+    return `<tr>
+      <td class="dim ltr" style="white-space:nowrap">${fmtTime(r.ts)}</td>
+      <td><span class="tag-src">${r.source||'?'}</span></td>
+      <td><span class="tag-reason" title="${r.reason||''}">${(r.reason||'').substring(0,22)}</span></td>
+      <td style="color:#444;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${q}">${q.substring(0,22)}${q.length>22?'…':''}</td>
+      <td class="${dCls} ltr">${ds}${f(r.delta,5)}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ─── PNL CHART UPDATE ────────────────────────────────────────────
+function updateChart(history) {
+  if (!history || !history.length) return;
+  const labels = history.map(p => p.ts);
+  const data   = history.map(p => p.value);
+  pnlChart.data.labels = labels;
+  pnlChart.data.datasets[0].data = data;
+  const trend = data.length > 1 ? data[data.length-1] - data[0] : 0;
+  const color = trend >= 0 ? '#00ff88' : '#ff4444';
+  pnlChart.data.datasets[0].borderColor = color;
+  pnlChart.data.datasets[0].backgroundColor = trend >= 0
+    ? 'rgba(0,255,136,.04)' : 'rgba(255,68,68,.04)';
+  pnlChart.update('none');
+  if (labels.length >= 2) {
+    document.getElementById('chart-range').textContent =
+      fmtTime(labels[0]) + ' — ' + fmtTime(labels[labels.length-1]);
+  }
+}
+
+// ─── MAIN REFRESH ────────────────────────────────────────────────
+let _prevLoop = -1;
+
+async function refresh() {
+  try {
+    const [sr, tr, pr, rr, hr, ar] = await Promise.all([
+      fetch('/api/status'),
+      fetch('/api/trades'),
+      fetch('/api/positions'),
+      fetch('/api/rejections'),
+      fetch('/api/pnl-history'),
+      fetch('/api/activity'),
+    ]);
+
+    const s        = await sr.json();
+    const trades   = await tr.json();
+    const positions= await pr.json();
+    const rejs     = await rr.json();
+    const history  = await hr.json();
+    const activity = await ar.json();
+
+    // ── Header
+    const mb = document.getElementById('mode-badge');
+    mb.textContent = (s.mode || 'paper').toUpperCase();
+    mb.className = 'badge ' + (s.mode === 'live' ? 'badge-live' : 'badge-paper');
+    document.getElementById('pause-badge').style.display = s.is_paused ? '' : 'none';
+    document.getElementById('hdr-time').textContent = 'עודכן ' + new Date().toLocaleTimeString('he-IL');
+
+    // ── Health strip
+    document.getElementById('h-loop').textContent = '#' + (s.loop_count || 0).toLocaleString();
+    document.getElementById('h-uptime').textContent = fmtUptime(s.uptime_seconds || 0);
+    const errEl = document.getElementById('h-err');
+    errEl.textContent = s.errors_today || 0;
+    errEl.className = 'hval ' + ((s.errors_today||0) > 0 ? 'red' : 'bright');
+    document.getElementById('h-trades').textContent = s.trades_today || 0;
+    document.getElementById('h-pos').textContent = s.open_positions || 0;
+    const statusEl = document.getElementById('h-status');
+    if (s.is_paused) {
+      statusEl.textContent = '⏸ מושהה'; statusEl.className = 'hval yellow';
+    } else if (s.mode === 'live') {
+      statusEl.textContent = '● חי'; statusEl.className = 'hval green';
+    } else {
+      statusEl.textContent = '○ נייר'; statusEl.className = 'hval dim';
+    }
+
+    // ── Stat cards
+    setVal('s-balance', '$' + f2(s.balance), 'bright');
+    const tp = s.total_pnl || 0, dp = s.daily_pnl || 0, up = s.unrealized_pnl || 0;
+    setVal('s-tpnl', sgn(tp) + '$' + Math.abs(tp).toFixed(4), vcls(tp));
+    setVal('s-dpnl', sgn(dp) + '$' + Math.abs(dp).toFixed(4), vcls(dp));
+    setVal('s-upnl', sgn(up) + '$' + Math.abs(up).toFixed(4), vcls(up));
+    const pv = (s.balance||0) + (s.unrealized_pnl||0);
+    setVal('s-portfolio', '$' + pv.toFixed(2), 'bright');
+
+    // ── Gauge
+    const closed = trades.filter(t => t.pnl != null);
+    const wins = closed.filter(t => t.pnl > 0).length;
+    const wr = closed.length > 0 ? wins / closed.length : 0;
+    updateGauge(wr, closed.length, wins);
+
+    // ── Strategy breakdown
+    updateStrategies(s.strategy_stats || {});
+
+    // ── Market scanner
+    updateScanner(rejs);
+
+    // ── Positions
+    updatePositions(positions);
+
+    // ── Activity feed
+    updateFeed(activity, trades);
+
+    // ── Rejections
+    updateRejections(rejs);
+
+    // ── Chart
+    updateChart(history);
+
+    // ── Footer
+    const fdot = document.getElementById('foot-dot');
+    const fmsg = document.getElementById('foot-msg');
+    const feedDot = document.getElementById('feed-dot');
+    if (s.is_paused) {
+      fdot.className = 'sdot sdot-yellow';
+      feedDot.className = 'sdot sdot-yellow';
+      fmsg.textContent = 'מושהה — הגבלת משיכה יומית הופעלה';
+    } else {
+      fdot.className = 'sdot sdot-green';
+      feedDot.className = 'sdot sdot-green';
+      fmsg.textContent = s.mode === 'live' ? '● מסחר חי פעיל' : 'מסחר על נייר פעיל · POST /golive למסחר אמיתי';
+    }
+
+    // Pulse loop counter when it changes
+    if (_prevLoop >= 0 && s.loop_count !== _prevLoop) {
+      const el = document.getElementById('h-loop');
+      el.classList.add('flash');
+      setTimeout(() => el.classList.remove('flash'), 400);
+    }
+    _prevLoop = s.loop_count;
+
+  } catch(e) {
+    document.getElementById('foot-dot').className = 'sdot sdot-red';
+    document.getElementById('foot-msg').textContent = 'שגיאת חיבור: ' + e.message;
+  }
+}
+
 refresh();
-setInterval(refresh,5000);
+setInterval(refresh, 2500);
 </script>
 </body>
 </html>

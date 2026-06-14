@@ -1,4 +1,6 @@
 import asyncio
+import time
+from collections import deque
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
@@ -9,6 +11,11 @@ from strategies import run_all_strategies
 from risk.manager import RiskManager
 from hedge.system import HedgeSystem
 from logger.trade_logger import TradeLogger
+
+_STRATEGY_NAMES = [
+    "near_resolution", "pure_arbitrage", "directional_arb",
+    "repricing", "cross_timeframe", "copy_trading",
+]
 
 
 class AgentCore:
@@ -25,6 +32,16 @@ class AgentCore:
         self.last_loop: Optional[str] = None
         self.errors_today: int = 0
         self.positions: Dict[str, dict] = {}
+
+        self._start_time: float = time.time()
+        # PnL snapshots: {ts, value} — 24h at 30s interval = 2880 max
+        self._pnl_history: deque = deque(maxlen=2880)
+        # Activity feed: {ts, type, msg} — newest first (appendleft)
+        self._activity: deque = deque(maxlen=500)
+        # Per-strategy stats
+        self._strategy_stats: Dict[str, dict] = {
+            s: {"trades": 0, "wins": 0, "pnl": 0.0} for s in _STRATEGY_NAMES
+        }
 
         self.market_data = MarketDataFetcher()
         self.executor = OrderExecutor()
@@ -48,11 +65,28 @@ class AgentCore:
             except Exception as exc:
                 self.errors_today += 1
                 print(f"[AGENT ERROR] {exc}")
+                self._activity.appendleft({
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                    "type": "error",
+                    "msg": f"שגיאה: {str(exc)[:80]}",
+                })
             await asyncio.sleep(config.LOOP_INTERVAL)
+
+    def _record_pnl_snapshot(self):
+        positions_value = sum(
+            (p["current_price"] / p["entry_price"]) * p["size"]
+            for p in self.positions.values()
+            if p.get("entry_price", 0) > 0
+        )
+        self._pnl_history.append({
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "value": round(self.balance + positions_value, 4),
+        })
 
     async def _tick(self):
         self.loop_count += 1
         self.last_loop = datetime.now(timezone.utc).isoformat()
+        self._record_pnl_snapshot()
 
         if self.is_paused:
             print(f"[AGENT] ⏸  Paused. Balance=${self.balance:.2f} daily_pnl=${self.daily_pnl:.4f}")
@@ -84,6 +118,12 @@ class AgentCore:
         opps = await run_all_strategies(markets, self.positions, self.balance)
         print(f"[AGENT] Found {len(opps)} raw opportunities")
 
+        self._activity.appendleft({
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "type": "loop",
+            "msg": f"#{self.loop_count} | {len(markets)} שווקים | {len(opps)} הזדמנויות גלמיות",
+        })
+
         # Risk filter + rank by EV
         valid = self.risk.filter(opps)
         if not valid:
@@ -113,21 +153,37 @@ class AgentCore:
         self.balance = round(self.balance - cost, 6)
         self.trades_today += 1
 
+        strategy = result.get("strategy", "unknown")
+        if strategy in self._strategy_stats:
+            self._strategy_stats[strategy]["trades"] += 1
+
+        self._activity.appendleft({
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "type": "trade",
+            "msg": (
+                f"עסקה: {strategy} | "
+                f"{result.get('market_question','')[:45]} | "
+                f"{result.get('side','BUY')} @{result.get('price',0):.4f}"
+            ),
+        })
+
         tid = result.get("token_id")
         if tid and tid not in self.positions:
+            entry_price = result.get("price", 0)
             self.positions[tid] = {
                 "market_id": result.get("market_id"),
                 "token_id": tid,
                 "side": result.get("side"),
-                "entry_price": result.get("price"),
+                "entry_price": entry_price,
                 "size": result.get("size"),
-                "current_price": result.get("price"),
-                "strategy": result.get("strategy"),
+                "current_price": entry_price,
+                "strategy": strategy,
                 "market_question": result.get("market_question", ""),
-                "stop_loss_price": round(result.get("price", 0) * (1 - config.STOP_LOSS_PCT), 6),
+                "stop_loss_price": round(entry_price * (1 - config.STOP_LOSS_PCT), 6),
                 "hedge_size": 0.0,
                 "full_hedge_active": False,
                 "timestamp": result.get("timestamp"),
+                "price_history": [entry_price],
             }
 
     def _refresh_positions(self, markets: List[dict]):
@@ -138,7 +194,14 @@ class AgentCore:
                 continue
             for token in market.get("tokens", []):
                 if token.get("token_id") == tid:
-                    pos["current_price"] = float(token.get("price") or pos["current_price"])
+                    new_price = float(token.get("price") or pos["current_price"])
+                    pos["current_price"] = new_price
+                    # Append to sparkline history (cap at 60 points)
+                    ph = pos.setdefault("price_history", [])
+                    if not ph or abs(new_price - ph[-1]) > 0.0001:
+                        ph.append(new_price)
+                        if len(ph) > 60:
+                            ph.pop(0)
                     break
 
     def _settle_expired(self, markets: List[dict]):
@@ -188,6 +251,14 @@ class AgentCore:
             f"entry={pos['entry_price']:.4f} exit={exit_price:.4f} | "
             f"PnL=${pnl:+.4f}"
         )
+
+        strategy = pos.get("strategy", "unknown")
+        if strategy in self._strategy_stats:
+            self._strategy_stats[strategy]["pnl"] = round(
+                self._strategy_stats[strategy]["pnl"] + pnl, 6
+            )
+            if pnl > 0:
+                self._strategy_stats[strategy]["wins"] += 1
 
         # Notify copy-trading tracker
         if pos.get("strategy") == "copy_trading":
@@ -248,7 +319,15 @@ class AgentCore:
             "loop_count": self.loop_count,
             "last_loop": self.last_loop,
             "errors_today": self.errors_today,
+            "uptime_seconds": int(time.time() - self._start_time),
+            "strategy_stats": {k: dict(v) for k, v in self._strategy_stats.items()},
         }
+
+    def get_pnl_history(self) -> list:
+        return list(self._pnl_history)
+
+    def get_activity(self, n: int = 100) -> list:
+        return list(self._activity)[:n]
 
     def get_positions(self) -> list:
         return [

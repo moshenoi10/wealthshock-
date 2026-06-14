@@ -63,6 +63,20 @@ async def api_rejections():
     return JSONResponse(rejected_logger.get_recent(200))
 
 
+@app.get("/api/pnl-history")
+async def api_pnl_history():
+    if _agent is None:
+        return JSONResponse([])
+    return JSONResponse(_agent.get_pnl_history())
+
+
+@app.get("/api/activity")
+async def api_activity():
+    if _agent is None:
+        return JSONResponse([])
+    return JSONResponse(_agent.get_activity(150))
+
+
 @app.post("/golive")
 async def go_live():
     os.environ["TRADING_MODE"] = "live"
