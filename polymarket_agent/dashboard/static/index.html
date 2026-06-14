@@ -753,6 +753,7 @@ tbody tr:hover td{background:rgba(255,255,255,0.025)}
   <div class="tab" data-tab="kalshi">Kalshi · הדמיה</div>
   <div class="tab" data-tab="crypto">ארביטראז׳ קריפטו · הדמיה</div>
   <div class="tab" data-tab="detective">🔍 בלש · ניתוח</div>
+  <div class="tab" data-tab="btc">₿ BTC Lag Arb · הדמיה</div>
 </div>
 
 <!-- ═══ PAGE BODY ════════════════════════════════════════════════ -->
@@ -1176,6 +1177,115 @@ tbody tr:hover td{background:rgba(255,255,255,0.025)}
          style="color:var(--green);text-decoration:none;font-size:13px">⬇ PATTERNS_FOUND.md</a>
       <a href="/api/data/EXPLOITS.md" target="_blank"
          style="color:var(--green);text-decoration:none;font-size:13px">⬇ EXPLOITS.md</a>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<!-- ─── TAB: BTC LAG ARB ──────────────────────────────────────── -->
+<div class="tab-panel" id="tab-btc">
+<div class="page">
+
+  <!-- Header notice -->
+  <div style="background:rgba(247,147,26,.06);border:1px solid rgba(247,147,26,.3);border-radius:2px;padding:12px 20px;display:flex;align-items:center;gap:14px;margin-bottom:20px">
+    <span style="font-size:20px">₿</span>
+    <div>
+      <div style="font-size:12px;font-weight:700;color:#f7931a;letter-spacing:1px">BTC LAG ARB — הדמיה בלבד</div>
+      <div style="font-size:11px;color:var(--text4);margin-top:2px">מזהה פיגור מחיר בין Binance ל-Polymarket. קונה YES/NO כשהפיגור >2%. מאזן נפרד: $1,000.</div>
+    </div>
+    <div style="margin-right:auto;text-align:left">
+      <div style="font-size:10px;color:var(--text4)">מחיר BTC עכשיו</div>
+      <div style="font-size:20px;font-weight:700;font-family:'SF Mono','Courier New',monospace;color:#f7931a" id="btc-live-price">—</div>
+    </div>
+  </div>
+
+  <!-- Stats row -->
+  <div class="metrics" style="margin-bottom:20px">
+    <div class="mc">
+      <div class="mc-lbl">מאזן</div>
+      <div class="mc-val w" id="btc-balance">$1,000.00</div>
+    </div>
+    <div class="mc">
+      <div class="mc-lbl">רווח/הפסד כולל</div>
+      <div class="mc-val" id="btc-pnl">$0.0000</div>
+    </div>
+    <div class="mc">
+      <div class="mc-lbl">עסקאות</div>
+      <div class="mc-val w" id="btc-trades">0</div>
+    </div>
+    <div class="mc">
+      <div class="mc-lbl">% ניצחון</div>
+      <div class="mc-val w" id="btc-winrate">—</div>
+    </div>
+    <div class="mc">
+      <div class="mc-lbl">פוזיציות פתוחות</div>
+      <div class="mc-val w" id="btc-open-pos">0</div>
+    </div>
+    <div class="mc">
+      <div class="mc-lbl">שווקים במעקב</div>
+      <div class="mc-val w" id="btc-markets">0</div>
+    </div>
+    <div class="mc">
+      <div class="mc-lbl">סריקות</div>
+      <div class="mc-val w" id="btc-scans">0</div>
+    </div>
+    <div class="mc">
+      <div class="mc-lbl">סריקה אחרונה</div>
+      <div class="mc-val w3" id="btc-last-scan">—</div>
+    </div>
+  </div>
+
+  <!-- Two columns: opportunities + open positions -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+
+    <!-- Live lags -->
+    <div class="card">
+      <div class="card-title">פיגורים חיים (הזדמנויות)</div>
+      <div id="btc-opps-body" style="font-size:11px;color:var(--text4);padding-top:8px">
+        ממתין לנתונים...
+      </div>
+    </div>
+
+    <!-- Open positions -->
+    <div class="card">
+      <div class="card-title">פוזיציות פתוחות</div>
+      <div id="btc-positions-body" style="font-size:11px;color:var(--text4);padding-top:8px">
+        אין פוזיציות פתוחות
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Recent trades -->
+  <div class="card">
+    <div class="card-title">עסקאות אחרונות (הדמיה)</div>
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:11px" id="btc-trades-tbl">
+        <thead>
+          <tr style="color:var(--text4);border-bottom:1px solid var(--border)">
+            <th style="padding:6px 8px;text-align:right;font-weight:600">שאלה</th>
+            <th style="padding:6px 8px;text-align:center;font-weight:600">כיוון</th>
+            <th style="padding:6px 8px;text-align:center;font-weight:600">כניסה</th>
+            <th style="padding:6px 8px;text-align:center;font-weight:600">יציאה</th>
+            <th style="padding:6px 8px;text-align:center;font-weight:600">פיגור%</th>
+            <th style="padding:6px 8px;text-align:center;font-weight:600">זמן (דקות)</th>
+            <th style="padding:6px 8px;text-align:center;font-weight:600">סיבת יציאה</th>
+            <th style="padding:6px 8px;text-align:left;font-weight:600">רווח/הפסד</th>
+          </tr>
+        </thead>
+        <tbody id="btc-trades-body">
+          <tr><td colspan="8" style="text-align:center;color:var(--text4);padding:20px">אין עסקאות עדיין</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Scan log -->
+  <div class="card" style="margin-top:16px">
+    <div class="card-title">לוג סריקות אחרון</div>
+    <div id="btc-scan-log" style="font-family:'SF Mono','Courier New',monospace;font-size:11px;color:var(--text4);padding-top:6px;line-height:1.7">
+      ממתין לסריקה...
     </div>
   </div>
 
@@ -2017,6 +2127,95 @@ async function delUser(id,name){
 }
 
 // ═══════════════════════════════════════════════════════════════
+//   BTC LAG ARB
+// ═══════════════════════════════════════════════════════════════
+function updateBtcLag(d){
+  if(!d)return;
+  const pnl=d.total_pnl||0,wr=d.win_rate||0,tot=d.trades||0;
+  document.getElementById('btc-live-price').textContent=d.btc_price?'$'+d.btc_price.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}):'—';
+  document.getElementById('btc-balance').textContent='$'+(d.balance||1000).toFixed(2);
+  const pe=document.getElementById('btc-pnl');
+  pe.textContent=(pnl>=0?'+':'')+pnl.toFixed(4);
+  pe.className='mc-val '+(pnl>0?'g':pnl<0?'r':'w');
+  document.getElementById('btc-trades').textContent=tot;
+  document.getElementById('btc-winrate').textContent=tot?Math.round(wr*100)+'%':'—';
+  document.getElementById('btc-open-pos').textContent=(d.open_positions||[]).length;
+  document.getElementById('btc-markets').textContent=d.markets_tracked||0;
+  document.getElementById('btc-scans').textContent=d.scan_count||0;
+  if(d.last_scan){
+    try{const t=new Date(d.last_scan);document.getElementById('btc-last-scan').textContent=t.toLocaleTimeString('he-IL');}
+    catch{}
+  }
+
+  // Opportunities
+  const ob=document.getElementById('btc-opps-body');
+  if((d.opportunities||[]).length===0){
+    ob.innerHTML='<div style="color:var(--text4);padding:8px 0">אין פיגורים כרגע — BTC מתומחר נכון בשווקים</div>';
+  }else{
+    ob.innerHTML=(d.opportunities||[]).map(o=>`
+      <div style="border-bottom:1px solid var(--border);padding:7px 0">
+        <div style="color:var(--text2);font-size:11px;margin-bottom:3px">${o.question}</div>
+        <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:10px">
+          <span>כיוון: <b style="color:${o.side==='YES'?'var(--green)':'var(--blue)'}">${o.side}</b></span>
+          <span>פיגור: <b style="color:#f7931a">${o.lag_pct}%</b></span>
+          <span>מחיר: <b>${o.side==='YES'?o.yes_price:o.no_price}</b></span>
+          <span>צפוי: <b style="color:var(--green)">${o.expected}</b></span>
+          <span>BTC: <b>$${(o.real_btc||0).toLocaleString()}</b></span>
+          <span>strike: <b>$${(o.strike||0).toLocaleString()}</b></span>
+        </div>
+      </div>`).join('');
+  }
+
+  // Open positions
+  const pb=document.getElementById('btc-positions-body');
+  if((d.open_positions||[]).length===0){
+    pb.innerHTML='<div style="color:var(--text4);padding:8px 0">אין פוזיציות פתוחות</div>';
+  }else{
+    pb.innerHTML=(d.open_positions||[]).map(p=>`
+      <div style="border-bottom:1px solid var(--border);padding:7px 0">
+        <div style="color:var(--text2);font-size:11px;margin-bottom:3px">${p.question}</div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:10px">
+          <span>כיוון: <b style="color:${p.side==='YES'?'var(--green)':'var(--blue)'}">${p.side}</b></span>
+          <span>כניסה: <b>${p.entry_price}</b></span>
+          <span>גודל: <b>$${p.size.toFixed(2)}</b></span>
+          <span>פיגור: <b style="color:#f7931a">${p.lag_pct}%</b></span>
+          <span>BTC: <b>$${(p.btc_entry||0).toLocaleString()}</b></span>
+          <span>strike: <b>$${(p.strike||0).toLocaleString()}</b></span>
+          <span>זמן: <b>${p.held_min}דק׳</b></span>
+        </div>
+      </div>`).join('');
+  }
+
+  // Closed trades table
+  const tb=document.getElementById('btc-trades-body');
+  if((d.sim_trades||[]).length===0){
+    tb.innerHTML='<tr><td colspan="8" style="text-align:center;color:var(--text4);padding:20px">אין עסקאות עדיין</td></tr>';
+  }else{
+    tb.innerHTML=(d.sim_trades||[]).map(t=>`
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:5px 8px;color:var(--text3);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.question}</td>
+        <td style="padding:5px 8px;text-align:center;color:${t.side==='YES'?'var(--green)':'var(--blue)'}">${t.side}</td>
+        <td style="padding:5px 8px;text-align:center;color:var(--text3)">${t.entry_price}</td>
+        <td style="padding:5px 8px;text-align:center;color:var(--text3)">${t.exit_price}</td>
+        <td style="padding:5px 8px;text-align:center;color:#f7931a">${t.lag_pct}%</td>
+        <td style="padding:5px 8px;text-align:center;color:var(--text4)">${t.hold_min}</td>
+        <td style="padding:5px 8px;text-align:center;color:var(--text4);font-size:10px">${t.exit_reason||'—'}</td>
+        <td style="padding:5px 8px;text-align:left;color:${(t.pnl||0)>=0?'var(--green)':'var(--red)'};font-weight:600">${(t.pnl>=0?'+':'') + (t.pnl||0).toFixed(4)}</td>
+      </tr>`).join('');
+  }
+
+  // Scan log
+  const sl=document.getElementById('btc-scan-log');
+  if((d.scan_log||[]).length===0){sl.textContent='ממתין לסריקה...';}
+  else{
+    sl.innerHTML=(d.scan_log||[]).map(row=>`
+      <div><span style="color:var(--text4)">[#${row.scan}]</span>
+      BTC=${row.btc_price?'$'+row.btc_price.toLocaleString():'—'}
+      mkts=${row.markets_checked} lags=${row.lags_found} pos=${row.positions}</div>`).join('');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
 //   MAIN REFRESH
 // ═══════════════════════════════════════════════════════════════
 let _pl=-1;
@@ -2024,13 +2223,14 @@ let _pl=-1;
 async function refresh(){
   if(!_authToken)return;
   try{
-    const [sr,tr,pr,rr,hr,ar,kr,cr,dr,psr]=await Promise.all([
+    const [sr,tr,pr,rr,hr,ar,kr,cr,dr,psr,br]=await Promise.all([
       authFetch('/api/status'),authFetch('/api/trades'),authFetch('/api/positions'),
       authFetch('/api/rejections'),authFetch('/api/pnl-history'),authFetch('/api/activity'),
       authFetch('/api/platforms/kalshi').catch(()=>null),
       authFetch('/api/platforms/crypto').catch(()=>null),
       authFetch('/api/detective').catch(()=>null),
       authFetch('/api/platform-summary').catch(()=>null),
+      authFetch('/api/btc-lag').catch(()=>null),
     ]);
     const s=await sr.json(),trades=await tr.json(),positions=await pr.json();
     const rejs=await rr.json(),history=await hr.json(),activity=await ar.json();
@@ -2081,6 +2281,7 @@ async function refresh(){
     if(cr){try{updateCrypto(await cr.json());}catch{}}
     if(dr){try{updateDetective(await dr.json());}catch{}}
     if(psr){try{updatePlatformSummary(await psr.json());}catch{}}
+    if(br){try{updateBtcLag(await br.json());}catch{}}
 
     // ── Copy trading status
     updateCopyTradingStatus(s,trades);

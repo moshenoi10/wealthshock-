@@ -23,7 +23,7 @@ from auth.rate_limiter import check as rl_check, clear as rl_clear, record_failu
 from auth.tokens import create_token, revoke_token
 from logger.trade_logger import TradeLogger
 from logger import rejected_logger
-from platforms import kalshi_sim, crypto_arb_sim, detective
+from platforms import kalshi_sim, crypto_arb_sim, detective, btc_lag_arb
 import config
 
 _agent: AgentCore = None
@@ -46,6 +46,15 @@ async def _platform_loop():
         except Exception as exc:
             print(f"[PLATFORMS] {exc}")
         await asyncio.sleep(30)
+
+
+async def _btc_lag_loop():
+    while True:
+        try:
+            await btc_lag_arb.scan()
+        except Exception as exc:
+            print(f"[BTC-LAG LOOP] {exc}")
+        await asyncio.sleep(10)
 
 
 async def _detective_loop():
@@ -102,6 +111,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(_platform_loop()),
         asyncio.create_task(_detective_loop()),
         asyncio.create_task(_exploit_monitor_loop()),
+        asyncio.create_task(_btc_lag_loop()),
     ]
     yield
     for t in tasks:
@@ -296,6 +306,11 @@ async def api_detective_scan(_: dict = _auth_trader):
     return JSONResponse({"status": "scanning"})
 
 
+@app.get("/api/btc-lag")
+async def api_btc_lag(_: dict = _auth_viewer):
+    return JSONResponse(btc_lag_arb.get_status())
+
+
 @app.get("/api/platform-summary")
 async def api_platform_summary(_: dict = _auth_viewer):
     """Combined stats across all 3 platforms for the unified header row."""
@@ -304,14 +319,17 @@ async def api_platform_summary(_: dict = _auth_viewer):
 
     ks = kalshi_sim.get_status()
     cs = crypto_arb_sim.get_status()
+    bs = btc_lag_arb.get_status()
 
     k_balance = ks.get("balance", kalshi_sim.INITIAL_BALANCE)
     k_pnl     = ks.get("total_pnl", 0.0)
     c_balance = cs.get("balance", crypto_arb_sim.INITIAL_BALANCE)
     c_pnl     = cs.get("total_pnl", 0.0)
+    b_balance = bs.get("balance", btc_lag_arb.INITIAL_BALANCE)
+    b_pnl     = bs.get("total_pnl", 0.0)
 
-    combined_balance = round(poly_balance + k_balance + c_balance, 2)
-    combined_pnl     = round(poly_pnl    + k_pnl     + c_pnl,     2)
+    combined_balance = round(poly_balance + k_balance + c_balance + b_balance, 2)
+    combined_pnl     = round(poly_pnl    + k_pnl     + c_pnl     + b_pnl,     2)
 
     # Per-platform health signal
     def _health(pnl, trades):
@@ -345,6 +363,14 @@ async def api_platform_summary(_: dict = _auth_viewer):
                 "trades":  cs.get("trades", 0),
                 "health":  _health(c_pnl, cs.get("trades", 0)),
                 "scan_count": cs.get("scan_count", 0),
+            },
+            "btc_lag": {
+                "balance":   round(b_balance, 2),
+                "pnl":       round(b_pnl, 4),
+                "trades":    bs.get("trades", 0),
+                "health":    _health(b_pnl, bs.get("trades", 0)),
+                "btc_price": bs.get("btc_price"),
+                "open_positions": len(bs.get("open_positions", [])),
             },
         },
     })
