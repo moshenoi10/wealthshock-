@@ -24,9 +24,9 @@ MIN_LIQUIDITY = 500.0
 # Lesson learned: loosened thresholds ($18→$10.61, 0% win rate) — quality > quantity
 #
 # Strategy 1 — Near Resolution
-NEAR_RESOLUTION_WINDOW_MIN = 5
-NEAR_RESOLUTION_MAX_PRICE = 0.98
-NEAR_RESOLUTION_MIN_EDGE = 0.015
+NEAR_RESOLUTION_WINDOW_MIN = 2      # markets closing within 2 minutes
+NEAR_RESOLUTION_MAX_PRICE  = 0.90   # winning side must be below 0.90
+NEAR_RESOLUTION_MIN_EDGE   = 0.005  # 0.5% minimum EV (edge = 1 - price)
 
 # Strategy 2 & 3 — Pure / Directional Arbitrage
 ARBITRAGE_MAX_SUM = 0.98

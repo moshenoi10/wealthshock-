@@ -12,7 +12,7 @@ from risk.manager import RiskManager
 from hedge.system import HedgeSystem
 from logger.trade_logger import TradeLogger
 
-_STRATEGY_NAMES = ["copy_trading"]
+_STRATEGY_NAMES = ["near_resolution"]
 
 
 class AgentCore:

@@ -3,18 +3,18 @@ from typing import List
 
 from strategies.base import Opportunity
 from strategies import (
-    # near_resolution,    # DISABLED — testing copy_trading only
-    # pure_arbitrage,     # DISABLED — testing copy_trading only
-    # directional_arb,    # DISABLED — testing copy_trading only
-    # repricing,          # DISABLED — testing copy_trading only
-    # cross_timeframe,    # DISABLED — testing copy_trading only
-    copy_trading,
-    # exploit_new_market,    # DISABLED — logic flaw, losing money
-    # exploit_liquidity_trap, # DISABLED — logic flaw, losing money
+    near_resolution,
+    # pure_arbitrage,        # DISABLED
+    # directional_arb,       # DISABLED
+    # repricing,             # DISABLED
+    # cross_timeframe,       # DISABLED
+    # copy_trading,          # DISABLED — no whale signals
+    # exploit_new_market,    # DISABLED — logic flaw
+    # exploit_liquidity_trap, # DISABLED — logic flaw
 )
 
 _STRATEGIES = [
-    copy_trading,
+    near_resolution,
 ]
 
 
