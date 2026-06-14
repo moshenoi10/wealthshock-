@@ -42,6 +42,22 @@ CROSS_TIMEFRAME_MIN_DIVERGENCE = 0.03
 COPY_TRADING_MIN_WIN_RATE = 0.55
 COPY_TRADING_MIN_TRADES = 20
 
+# ── Strategy 7 — Exploit: New Market Mispricing ──────────────────────────────
+EXPLOIT_NM_MAX_AGE_HOURS  = 1.0    # only markets younger than this
+EXPLOIT_NM_MAX_VOLUME     = 500.0  # low volume = still price-discovering
+EXPLOIT_NM_MIN_LIQUIDITY  = 100.0  # must have some depth so fill is possible
+EXPLOIT_NM_MIN_PRICE      = 0.22   # don't touch extreme mispricings
+EXPLOIT_NM_MAX_PRICE      = 0.46   # buy side below apparent fair 0.50
+EXPLOIT_NM_MIN_MISPRICING = 0.04   # at least 4% below prior (was 3% — conservative)
+EXPLOIT_NM_CONVERGENCE_FACTOR = 0.50  # expect 50% of gap to close → EV multiplier
+EXPLOIT_NM_SIZE_PCT       = 0.08   # 8% of balance ≈ $1.44 at $18
+
+# ── Strategy 8 — Exploit: Liquidity Trap ─────────────────────────────────────
+EXPLOIT_LT_MAX_LIQUIDITY  = 5_000.0  # thin markets only
+EXPLOIT_LT_MIN_LIQUIDITY  = 80.0     # not completely dead
+EXPLOIT_LT_MIN_SPREAD     = 0.020    # YES+NO must be ≤ 0.980 (2%+ gap)
+EXPLOIT_LT_SIZE_PCT       = 0.08     # 8% of balance ≈ $1.44 at $18
+
 # ── Hedge ────────────────────────────────────────────────────────────────────
 HEDGE_PCT = 0.15
 FULL_HEDGE_TRIGGER_PCT = 0.08

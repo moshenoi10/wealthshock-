@@ -35,6 +35,7 @@ def _normalize(raw: dict) -> dict:
         "accepting_orders": raw.get("enableOrderBook", False),
         "volume": raw.get("volume"),
         "liquidity": raw.get("liquidity"),
+        "created_at": raw.get("createdAt") or raw.get("created_at") or raw.get("startDate"),
         "tokens": tokens,
     }
 

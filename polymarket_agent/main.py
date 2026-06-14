@@ -30,7 +30,7 @@ async def _platform_loop():
             )
         except Exception as exc:
             print(f"[PLATFORMS] {exc}")
-        await asyncio.sleep(60)
+        await asyncio.sleep(30)   # scan every 30s (was 60s)
 
 
 async def _detective_loop():
@@ -119,8 +119,7 @@ async def api_kalshi():
 @app.get("/api/platforms/crypto")
 async def api_crypto():
     import time as _time
-    # Trigger a scan if prices are stale (first load or >30s ago)
-    if _time.time() - crypto_arb_sim._cache_ts > 30:
+    if _time.time() - crypto_arb_sim._cache_ts > crypto_arb_sim.CACHE_TTL:
         try:
             data = await crypto_arb_sim.scan()
             return JSONResponse(data)

@@ -719,6 +719,12 @@ tbody tr:hover td{background:var(--bg3)}
     </div>
   </div>
 
+  <!-- Scan debug log -->
+  <div class="card" style="margin-top:12px">
+    <div class="ch"><span class="ch-title">לוג סריקות — Kalshi</span><span id="k-last-scan" style="font-size:11px;color:var(--text4)"></span></div>
+    <div id="k-scan-log" style="padding:8px 16px;font-family:'SF Mono','Courier New',monospace;font-size:11px;color:var(--text4);max-height:140px;overflow-y:auto"></div>
+  </div>
+
 </div>
 </div>
 
@@ -768,6 +774,16 @@ tbody tr:hover td{background:var(--bg3)}
         <tbody id="c-trades-body"><tr><td colspan="6" class="empty">אין עסקאות עדיין</td></tr></tbody>
       </table>
     </div>
+  </div>
+
+  <!-- Scan debug log -->
+  <div class="card" style="margin-top:12px">
+    <div class="ch">
+      <span class="ch-title">לוג סריקות — קריפטו</span>
+      <span id="c-last-scan" style="font-size:11px;color:var(--text4)"></span>
+      <span id="c-threshold" style="font-size:11px;color:var(--text4);margin-right:8px"></span>
+    </div>
+    <div id="c-scan-log" style="padding:8px 16px;font-family:'SF Mono','Courier New',monospace;font-size:11px;color:var(--text4);max-height:140px;overflow-y:auto"></div>
   </div>
 
 </div>
@@ -953,9 +969,11 @@ const STRAT_HE={
   near_resolution:'קרוב לפקיעה',pure_arbitrage:'ארביטראז׳ טהור',
   directional_arb:'ארביטראז׳ כיווני',repricing:'תמחור מחדש',
   cross_timeframe:'רב-זמני',copy_trading:'העתקת עסקאות',
+  exploit_new_market:'🔍 שוק חדש',exploit_liquidity_trap:'🪤 מלכודת נזילות',
 };
 const STRAT_AB={near_resolution:'NR',pure_arbitrage:'PA',directional_arb:'DA',
-                repricing:'RP',cross_timeframe:'CT',copy_trading:'CP'};
+                repricing:'RP',cross_timeframe:'CT',copy_trading:'CP',
+                exploit_new_market:'NM',exploit_liquidity_trap:'LT'};
 
 // ═══════════════════════════════════════════════════════════════
 //   WIN RATE GAUGE
@@ -1178,6 +1196,29 @@ function updateKalshi(data){
       <td style="font-family:'SF Mono','Courier New',monospace">${f(t.price)}</td>
       <td class="${pc}" style="direction:ltr;text-align:left;font-family:'SF Mono','Courier New',monospace">${t.pnl!=null?((t.pnl>=0?'+':'')+'$'+f(t.pnl,4)):'פתוח'}</td>
     </tr>`}).join('');
+
+  // Scan log
+  const kls=document.getElementById('k-last-scan');
+  if(kls&&data.last_scan)kls.textContent=' · סריקה אחרונה: '+fmtT(data.last_scan);
+  const klg=document.getElementById('k-scan-log');
+  const scanLog=data.scan_log||[];
+  if(klg){
+    if(!scanLog.length){
+      const d=data.last_scan_detail||{};
+      klg.innerHTML=d.ts
+        ? `${fmtT(d.ts)} fetched=${d.kalshi_markets_fetched||0} with_price=${d.with_price||0} ` +
+          `matched=${d.matched_to_poly||0} spread≥${(2.5).toFixed(1)}%=${d.spread_above_min||0} ` +
+          `traded=${d.trades_this_scan||0}`
+        : 'ממתין לסריקה ראשונה...';
+    } else {
+      klg.innerHTML=scanLog.map(l=>
+        `<div style="padding:2px 0;border-bottom:1px solid #1a1a1e">` +
+        `${fmtT(l.ts)} | fetched=${l.kalshi_markets_fetched||0} ` +
+        `price=${l.with_price||0} matched=${l.matched_to_poly||0} ` +
+        `arb≥2.5%=${l.spread_above_min||0} traded=${l.trades_this_scan||0}</div>`
+      ).join('');
+    }
+  }
 }
 
 function updateCrypto(data){
@@ -1228,6 +1269,28 @@ function updateCrypto(data){
       <td class="dp" style="direction:ltr;text-align:left;font-family:'SF Mono','Courier New',monospace">+${(t.spread_pct*100).toFixed(3)}%</td>
       <td class="${pc}" style="direction:ltr;text-align:left;font-family:'SF Mono','Courier New',monospace">${t.pnl!=null?(t.pnl>=0?'+':'')+'$'+f(t.pnl,4):'פתוח'}</td>
     </tr>`}).join('');
+
+  // Scan log
+  const cls=document.getElementById('c-last-scan');
+  if(cls&&data.last_scan)cls.textContent=' · סריקה אחרונה: '+fmtT(data.last_scan);
+  const cthr=document.getElementById('c-threshold');
+  if(cthr)cthr.textContent='סף: '+(data.min_spread_pct||'—');
+  const clg=document.getElementById('c-scan-log');
+  const clog=data.scan_log||[];
+  if(clg){
+    if(!clog.length){
+      const pc=data.price_comparison||[];
+      clg.innerHTML=pc.length
+        ? pc.map(p=>`${p.pair}: Binance=${p.binance?'$'+p.binance:'❌'} Kraken=${p.kraken?'$'+p.kraken:'❌'} Coinbase=${p.coinbase?'$'+p.coinbase:'❌'} spread=${(p.max_spread*100).toFixed(4)}%`).join('<br>')
+        : 'ממתין לנתונים...';
+    } else {
+      clg.innerHTML=clog.map(l=>
+        `<div style="padding:2px 0;border-bottom:1px solid #1a1a1e">` +
+        `${fmtT(l.ts)} | scan#${l.scan} prices_ok=${l.prices_ok||0} ` +
+        `arb_found=${l.arb_found||0} threshold=${l.threshold||'—'}</div>`
+      ).join('');
+    }
+  }
 }
 
 // ── Detective Mode ──────────────────────────────────────────────

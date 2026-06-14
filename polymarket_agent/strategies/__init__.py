@@ -9,6 +9,8 @@ from strategies import (
     repricing,
     cross_timeframe,
     copy_trading,
+    exploit_new_market,
+    exploit_liquidity_trap,
 )
 
 _STRATEGIES = [
@@ -18,6 +20,8 @@ _STRATEGIES = [
     repricing,
     cross_timeframe,
     copy_trading,
+    exploit_new_market,
+    exploit_liquidity_trap,
 ]
 
 
