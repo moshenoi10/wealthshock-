@@ -16,8 +16,8 @@ import httpx
 PAIRS = ["BTC/USDT", "ETH/USDT", "SOL/USDT"]
 MIN_SPREAD = 0.0002     # 0.02% — ultra-conservative to catch real spreads
 MAX_SPREAD = 0.05       # 5% cap — stale-data guard
-INITIAL_BALANCE = 100.0
-MAX_POSITION_PCT = 0.20
+INITIAL_BALANCE = 1000.0
+MAX_POSITION_PCT = 0.10
 CACHE_TTL = 30
 
 _balance: float = INITIAL_BALANCE
@@ -154,7 +154,7 @@ def _find_arb(pair: str, p: dict) -> Optional[dict]:
         print(f"[CRYPTO] {pair}: spread {spread*100:.2f}% > max {MAX_SPREAD*100:.0f}% — stale data guard")
         return None
 
-    size    = min(_balance * MAX_POSITION_PCT, 20.0)
+    size    = min(_balance * MAX_POSITION_PCT, 100.0)
     est_pnl = round(size * spread * 0.65, 4)
     return {
         "pair":          pair,
