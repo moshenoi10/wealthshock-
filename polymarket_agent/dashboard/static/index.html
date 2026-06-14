@@ -78,6 +78,13 @@ body{
 .bl{background:rgba(255,51,51,.1);color:var(--red);border:1px solid rgba(255,51,51,.4);
     animation:blink 1s infinite}
 .by{background:rgba(255,204,0,.08);color:var(--yellow);border:1px solid rgba(255,204,0,.3)}
+.btn-reset{
+  padding:5px 14px;border-radius:var(--r);border:1px solid rgba(255,204,0,.5);
+  background:rgba(255,204,0,.07);color:var(--yellow);font-size:11px;font-weight:700;
+  letter-spacing:1px;cursor:pointer;transition:background .15s,border-color .15s;
+  font-family:inherit;
+}
+.btn-reset:hover{background:rgba(255,204,0,.15);border-color:var(--yellow)}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
 .hdr-space{flex:1}
 .hdr-clock{font-family:'SF Mono','Courier New',monospace;font-size:14px;
@@ -443,6 +450,7 @@ tbody tr:hover td{background:var(--bg3)}
   </div>
   <span id="mode-badge" class="badge bp">מצב הדמיה</span>
   <span id="pause-badge" class="badge by" style="display:none">⏸ מושהה</span>
+  <button class="btn-reset" id="reset-btn" onclick="doReset()" style="display:none">↺ איפוס יתרה</button>
   <div class="hdr-space"></div>
   <span class="hdr-clock" id="hdr-clock">--:--:--</span>
 </div>
@@ -462,6 +470,7 @@ tbody tr:hover td{background:var(--bg3)}
   <div class="tab active" data-tab="poly">Polymarket</div>
   <div class="tab" data-tab="kalshi">Kalshi · הדמיה</div>
   <div class="tab" data-tab="crypto">ארביטראז׳ קריפטו · הדמיה</div>
+  <div class="tab" data-tab="detective">🔍 בלש · ניתוח</div>
 </div>
 
 <!-- ═══ PAGE BODY ════════════════════════════════════════════════ -->
@@ -685,6 +694,10 @@ tbody tr:hover td{background:var(--bg3)}
       <div class="sim-val w" id="k-trades">—</div>
     </div>
     <div class="sim-card">
+      <div class="sim-lbl">% הצלחה</div>
+      <div class="sim-val w3" id="k-winrate">—</div>
+    </div>
+    <div class="sim-card">
       <div class="sim-lbl">הזדמנויות שנסרקו</div>
       <div class="sim-val w" id="k-scanned">—</div>
     </div>
@@ -730,6 +743,10 @@ tbody tr:hover td{background:var(--bg3)}
       <div class="sim-lbl">עסקאות מדומות</div>
       <div class="sim-val w" id="c-trades">—</div>
     </div>
+    <div class="sim-card">
+      <div class="sim-lbl">% הצלחה</div>
+      <div class="sim-val w3" id="c-winrate">—</div>
+    </div>
   </div>
 
   <div class="g2eq">
@@ -750,6 +767,106 @@ tbody tr:hover td{background:var(--bg3)}
         <thead><tr><th>שעה</th><th>זוג</th><th>בורסה מקור</th><th>בורסה יעד</th><th>רווח צפוי</th><th style="direction:ltr;text-align:left">PnL</th></tr></thead>
         <tbody id="c-trades-body"><tr><td colspan="6" class="empty">אין עסקאות עדיין</td></tr></tbody>
       </table>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<!-- ─── TAB: DETECTIVE MODE ─────────────────────────────────────── -->
+<div class="tab-panel" id="tab-detective">
+<div class="page">
+
+  <!-- Status row -->
+  <div class="sim-stats">
+    <div class="sim-card">
+      <div class="sim-lbl">סטטוס סריקה</div>
+      <div class="sim-val w3" id="d-status">ממתין...</div>
+    </div>
+    <div class="sim-card">
+      <div class="sim-lbl">עסקאות שנותחו</div>
+      <div class="sim-val w" id="d-trades">—</div>
+    </div>
+    <div class="sim-card">
+      <div class="sim-lbl">שווקים</div>
+      <div class="sim-val w" id="d-markets">—</div>
+    </div>
+    <div class="sim-card">
+      <div class="sim-lbl">ארנקים</div>
+      <div class="sim-val w" id="d-wallets">—</div>
+    </div>
+    <div class="sim-card" style="flex:0 0 auto">
+      <div class="sim-lbl">הפעל סריקה</div>
+      <button id="d-scan-btn" onclick="triggerDetectiveScan()"
+        style="margin-top:6px;padding:6px 14px;background:rgba(74,144,255,.15);
+               border:1px solid #4a90ff;border-radius:2px;color:#4a90ff;
+               cursor:pointer;font-size:13px;font-family:inherit">
+        🔍 סרוק עכשיו
+      </button>
+    </div>
+  </div>
+
+  <!-- Top 3 winning patterns -->
+  <div class="ch"><span class="ch-title">3 הדפוסים המנצחים ביותר</span></div>
+  <div id="d-top3" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px">
+    <div class="card empty" style="padding:24px;text-align:center;color:var(--text4)">ממתין לסריקה...</div>
+  </div>
+
+  <!-- All patterns table -->
+  <div class="g2eq">
+    <div class="card">
+      <div class="ch"><span class="ch-title">כל הדפוסים (לפי אחוז הצלחה)</span></div>
+      <div class="rej-scroll">
+        <table>
+          <thead><tr><th>דפוס</th><th>קבוצה</th><th>עסקאות</th><th style="direction:ltr;text-align:left">% הצלחה</th></tr></thead>
+          <tbody id="d-patterns-body"><tr><td colspan="4" class="empty">ממתין לסריקה...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Category breakdown -->
+    <div class="card">
+      <div class="ch"><span class="ch-title">פירוט לפי קטגוריה</span></div>
+      <div id="d-cats" style="padding:8px 0"></div>
+
+      <div class="ch" style="margin-top:16px"><span class="ch-title">ניתוח גודל פוזיציה</span></div>
+      <div id="d-size-analysis" style="padding:8px 0"></div>
+    </div>
+  </div>
+
+  <!-- Top wallets -->
+  <div class="card" style="margin-top:12px">
+    <div class="ch">
+      <span class="ch-title">ארנקים מובילים (לפי רווח נטו)</span>
+      <a href="/api/data/winning_wallets.csv" target="_blank"
+         style="font-size:11px;color:var(--blue);text-decoration:none;margin-right:8px">
+        ⬇ הורד CSV
+      </a>
+    </div>
+    <div class="rej-scroll">
+      <table>
+        <thead><tr>
+          <th>ארנק</th><th>עסקאות</th><th>% הצלחה</th>
+          <th>הושקע</th><th style="direction:ltr;text-align:left">רווח נטו</th>
+          <th>קטגוריה</th><th>ווייל?</th>
+        </tr></thead>
+        <tbody id="d-wallets-body"><tr><td colspan="7" class="empty">ממתין לסריקה...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Data downloads -->
+  <div class="card" style="margin-top:12px">
+    <div class="ch"><span class="ch-title">קבצי נתונים שנוצרו</span></div>
+    <div style="padding:12px 20px;display:flex;gap:16px;flex-wrap:wrap">
+      <a href="/api/data/trades_raw.csv" target="_blank"
+         style="color:var(--blue);text-decoration:none;font-size:13px">⬇ trades_raw.csv</a>
+      <a href="/api/data/winning_wallets.csv" target="_blank"
+         style="color:var(--blue);text-decoration:none;font-size:13px">⬇ winning_wallets.csv</a>
+      <a href="/api/data/PATTERNS_FOUND.md" target="_blank"
+         style="color:var(--green);text-decoration:none;font-size:13px">⬇ PATTERNS_FOUND.md</a>
+      <a href="/api/data/EXPLOITS.md" target="_blank"
+         style="color:var(--green);text-decoration:none;font-size:13px">⬇ EXPLOITS.md</a>
     </div>
   </div>
 
@@ -1018,26 +1135,49 @@ function updateKalshi(data){
   const p=data.total_pnl||0;setVal('k-pnl',sgn(p)+'$'+Math.abs(p).toFixed(4),vcls(p));
   setVal('k-trades',data.trades||0,'w');
   setVal('k-scanned',data.scanned||0,'w');
+
+  // Win rate card
+  const wr=data.win_rate||0,tot=data.trades||0;
+  const wrEl=document.getElementById('k-winrate');
+  if(wrEl){wrEl.textContent=(tot>0?(wr*100).toFixed(0)+'%':'—');wrEl.className='sim-val '+(wr>=.5?'g':wr>0?'y':'w3');}
+
+  // Opportunities
   const ob=document.getElementById('k-opps-body');
   const opps=data.opportunities||[];
-  if(!opps.length){ob.innerHTML='<div class="empty">אין הזדמנויות ארביטראז׳ עכשיו</div>';}
-  else ob.innerHTML=opps.map(o=>`<div class="sim-opp-item">
-    <div class="sim-opp-q">${(o.question||'').substring(0,65)}</div>
-    <div class="sim-opp-row">
-      <span>Polymarket: ${f(o.poly_price)}</span>
-      <span>Kalshi: ${f(o.kalshi_price)}</span>
-      <span class="sim-edge">הפרש: ${(o.edge*100).toFixed(2)}%</span>
-    </div>
-  </div>`).join('');
+  const top=data.top_markets||[];
+
+  if(!opps.length && !top.length){
+    ob.innerHTML='<div class="empty">ממתין לנתוני Kalshi... (סריקה כל 60 שניות)</div>';
+  } else if(opps.length){
+    ob.innerHTML=opps.map(o=>`<div class="sim-opp-item">
+      <div class="sim-opp-q"><strong>${(o.question||'').substring(0,60)}</strong></div>
+      <div class="sim-opp-row">
+        <span>Polymarket: <strong>${f(o.poly_price)}</strong></span>
+        <span>Kalshi: <strong>${f(o.kalshi_price)}</strong></span>
+        <span class="sim-edge">פער: ${(o.edge*100).toFixed(2)}% · קנה ${o.buy_platform}</span>
+      </div>
+    </div>`).join('');
+  } else {
+    // Show raw Kalshi markets as reference
+    ob.innerHTML='<div style="padding:10px 20px;font-size:11px;color:var(--text4)">אין פער מספיק לארביטראז׳ — שווקי Kalshi פעילים:</div>'+
+    top.map(m=>`<div class="sim-opp-item">
+      <div class="sim-opp-q">${m.title}</div>
+      <div class="sim-opp-row"><span>YES: <strong>${f(m.yes_price)}</strong></span></div>
+    </div>`).join('');
+  }
+
+  // Trades table
   const tb=document.getElementById('k-trades-body');
   const kt=data.sim_trades||[];
-  if(!kt.length){tb.innerHTML='<tr><td colspan="5" class="empty">אין עסקאות הדמיה</td></tr>';}
+  if(!kt.length){tb.innerHTML='<tr><td colspan="5" class="empty">אין עסקאות הדמיה עדיין — ממתין לפער >1.5%</td></tr>';}
   else tb.innerHTML=kt.slice(0,30).map(t=>{const pc=t.pnl>0?'dp':t.pnl<0?'dn':'';
-    return`<tr><td style="color:var(--text4);font-family:'SF Mono','Courier New',monospace">${fmtT(t.ts)}</td>
-    <td style="color:var(--text2)">${(t.question||'').substring(0,30)}</td>
-    <td style="color:var(--text3)">${t.side||'BUY'}</td>
-    <td style="font-family:'SF Mono','Courier New',monospace">${f(t.price)}</td>
-    <td class="${pc}" style="direction:ltr;text-align:left">${t.pnl!=null?((t.pnl>=0?'+':'')+'$'+f(t.pnl,4)):'פתוח'}</td></tr>`}).join('');
+    return`<tr>
+      <td style="color:var(--text4);font-family:'SF Mono','Courier New',monospace;white-space:nowrap">${fmtT(t.ts)}</td>
+      <td style="color:var(--text2)">${(t.question||'').substring(0,30)}</td>
+      <td style="color:var(--text3);font-size:11px">${t.side||'BUY'}</td>
+      <td style="font-family:'SF Mono','Courier New',monospace">${f(t.price)}</td>
+      <td class="${pc}" style="direction:ltr;text-align:left;font-family:'SF Mono','Courier New',monospace">${t.pnl!=null?((t.pnl>=0?'+':'')+'$'+f(t.pnl,4)):'פתוח'}</td>
+    </tr>`}).join('');
 }
 
 function updateCrypto(data){
@@ -1046,6 +1186,11 @@ function updateCrypto(data){
   const p=data.total_pnl||0;setVal('c-pnl',sgn(p)+'$'+Math.abs(p).toFixed(4),vcls(p));
   setVal('c-opps',data.opportunities_found||0,'w');
   setVal('c-trades',data.trades||0,'w');
+
+  // Win rate
+  const cwr=data.win_rate||0,ctot=data.trades||0;
+  const cwrEl=document.getElementById('c-winrate');
+  if(cwrEl){cwrEl.textContent=(ctot>0?(cwr*100).toFixed(0)+'%':'—');cwrEl.className='sim-val '+(cwr>=.5?'g':cwr>0?'y':'w3');}
   // Price comparison table
   const pb=document.getElementById('c-prices-body');
   const prices=data.price_comparison||[];
@@ -1085,6 +1230,151 @@ function updateCrypto(data){
     </tr>`}).join('');
 }
 
+// ── Detective Mode ──────────────────────────────────────────────
+function _pctBar(wr){
+  const pct=(wr*100).toFixed(1);
+  const col=wr>=.6?'var(--green)':wr>=.45?'var(--yellow)':'var(--red)';
+  return`<div style="display:flex;align-items:center;gap:8px;direction:ltr">
+    <div style="flex:1;background:#333;border-radius:2px;height:6px">
+      <div style="width:${Math.min(wr*100,100)}%;background:${col};height:6px;border-radius:2px"></div>
+    </div>
+    <span style="color:${col};font-family:'SF Mono','Courier New',monospace;min-width:40px">${pct}%</span>
+  </div>`;
+}
+
+function updateDetective(data){
+  if(!data)return;
+
+  // Status row
+  const statusEl=document.getElementById('d-status');
+  if(statusEl){statusEl.textContent=data.status||'—';statusEl.className='sim-val '+(data.status==='הושלם'?'g':'y');}
+  setVal('d-trades',(data.total_trades||0).toLocaleString(),'w');
+  setVal('d-markets',data.total_markets||0,'w');
+  setVal('d-wallets',data.total_wallets||0,'w');
+
+  // Top 3 pattern cards
+  const top3El=document.getElementById('d-top3');
+  const top3=data.top3_patterns||[];
+  if(top3El){
+    if(!top3.length){
+      top3El.innerHTML='<div class="card empty" style="padding:24px;text-align:center;color:var(--text4);grid-column:span 3">ממתין לסריקה — לחץ "סרוק עכשיו"</div>';
+    } else {
+      top3El.innerHTML=top3.map((p,i)=>{
+        const rank=['🥇','🥈','🥉'][i]||'';
+        return`<div class="card" style="padding:20px;border-color:var(--green)">
+          <div style="font-size:24px;margin-bottom:8px">${rank}</div>
+          <div style="font-size:13px;color:var(--text2);margin-bottom:12px">${p.label}</div>
+          ${_pctBar(p.win_rate)}
+          <div style="margin-top:8px;font-size:11px;color:var(--text4)">${p.trades} עסקאות · קבוצה: ${p.group}</div>
+        </div>`;
+      }).join('');
+    }
+  }
+
+  // All patterns table
+  const ptb=document.getElementById('d-patterns-body');
+  const pats=data.patterns||[];
+  if(ptb){
+    if(!pats.length){ptb.innerHTML='<tr><td colspan="4" class="empty">ממתין לסריקה...</td></tr>';}
+    else ptb.innerHTML=pats.map((p,i)=>{
+      const wr=(p.win_rate*100).toFixed(1);
+      const cls=p.win_rate>=.6?'dp':p.win_rate>=.45?'y':'dn';
+      const worst=(data.worst_patterns||[]).some(w=>w.label===p.label);
+      return`<tr>
+        <td style="color:${worst?'var(--red)':'var(--text2)'}">${p.label}</td>
+        <td style="font-size:11px;color:var(--text4)">${p.group}</td>
+        <td style="font-family:'SF Mono','Courier New',monospace">${p.trades}</td>
+        <td style="direction:ltr;text-align:left">
+          <span class="${cls}" style="font-family:'SF Mono','Courier New',monospace">${wr}%</span>
+          <div style="width:${Math.min(p.win_rate*100,100)}%;background:${p.win_rate>=.5?'var(--green)':'var(--red)'};height:3px;border-radius:1px;margin-top:3px"></div>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  // Category breakdown
+  const catsEl=document.getElementById('d-cats');
+  const cats=data.categories||[];
+  if(catsEl){
+    if(!cats.length){catsEl.innerHTML='<div class="empty" style="padding:12px 20px">ממתין לסריקה...</div>';}
+    else catsEl.innerHTML=cats.map(c=>`<div style="padding:10px 20px;border-bottom:1px solid #222">
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+        <span style="color:var(--text2);font-size:13px">${c.category}</span>
+        <span style="font-size:11px;color:var(--text4)">${c.trades} עסקאות</span>
+      </div>
+      ${_pctBar(c.win_rate)}
+    </div>`).join('');
+  }
+
+  // Size analysis
+  const sizeEl=document.getElementById('d-size-analysis');
+  const sizeA=data.size_analysis||[];
+  if(sizeEl){
+    if(!sizeA.length){sizeEl.innerHTML='<div class="empty" style="padding:12px 20px">ממתין...</div>';}
+    else sizeEl.innerHTML=sizeA.map(p=>`<div style="padding:10px 20px;border-bottom:1px solid #222">
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+        <span style="color:var(--text2);font-size:13px">${p.label}</span>
+        <span style="font-size:11px;color:var(--text4)">${p.trades} עסקאות</span>
+      </div>
+      ${_pctBar(p.win_rate)}
+    </div>`).join('');
+  }
+
+  // Wallets table
+  const wtb=document.getElementById('d-wallets-body');
+  const wallets=data.top_wallets||[];
+  if(wtb){
+    if(!wallets.length){wtb.innerHTML='<tr><td colspan="7" class="empty">ממתין לסריקה...</td></tr>';}
+    else wtb.innerHTML=wallets.map(w=>{
+      const nc=w.net_pnl>0?'dp':w.net_pnl<0?'dn':'w3';
+      return`<tr>
+        <td style="font-family:'SF Mono','Courier New',monospace;font-size:11px;color:var(--text4)">${w.wallet}</td>
+        <td>${w.trades}</td>
+        <td>${(w.win_rate*100).toFixed(0)}%</td>
+        <td style="direction:ltr;text-align:left">$${w.total_invested.toFixed(2)}</td>
+        <td class="${nc}" style="direction:ltr;text-align:left;font-family:'SF Mono','Courier New',monospace">
+          ${w.net_pnl>=0?'+':''}$${w.net_pnl.toFixed(2)}
+        </td>
+        <td style="font-size:11px">${w.top_category}</td>
+        <td>${w.is_whale?'🐋':''}</td>
+      </tr>`;
+    }).join('');
+  }
+}
+
+async function triggerDetectiveScan(){
+  const btn=document.getElementById('d-scan-btn');
+  if(btn){btn.textContent='⏳ סורק...';btn.disabled=true;}
+  try{
+    await fetch('/api/detective/scan',{method:'POST'});
+    // Poll for result after ~30s
+    setTimeout(async()=>{
+      try{
+        const r=await fetch('/api/detective');
+        updateDetective(await r.json());
+      }catch{}
+      if(btn){btn.textContent='🔍 סרוק עכשיו';btn.disabled=false;}
+    }, 30000);
+  }catch(e){
+    if(btn){btn.textContent='שגיאה — נסה שוב';btn.disabled=false;}
+  }
+}
+
+async function doReset(){
+  if(!confirm('איפוס מלא: יתרה תחזור ל-$18.00 והסוכן יתחדש. להמשיך?'))return;
+  try{
+    const r=await fetch('/reset',{method:'POST'});
+    const d=await r.json();
+    if(d.status==='reset'){
+      document.getElementById('reset-btn').style.display='none';
+      document.getElementById('pause-badge').style.display='none';
+      const fm=document.getElementById('foot-msg');
+      if(fm)fm.textContent='✓ איפוס הושלם — יתרה $'+d.balance.toFixed(2)+', סוכן פעיל';
+      setTimeout(refresh,500);
+    }
+  }catch(e){alert('שגיאה באיפוס: '+e.message);}
+}
+
 // ═══════════════════════════════════════════════════════════════
 //   MAIN REFRESH
 // ═══════════════════════════════════════════════════════════════
@@ -1092,11 +1382,12 @@ let _pl=-1;
 
 async function refresh(){
   try{
-    const [sr,tr,pr,rr,hr,ar,kr,cr]=await Promise.all([
+    const [sr,tr,pr,rr,hr,ar,kr,cr,dr]=await Promise.all([
       fetch('/api/status'),fetch('/api/trades'),fetch('/api/positions'),
       fetch('/api/rejections'),fetch('/api/pnl-history'),fetch('/api/activity'),
       fetch('/api/platforms/kalshi').catch(()=>null),
       fetch('/api/platforms/crypto').catch(()=>null),
+      fetch('/api/detective').catch(()=>null),
     ]);
     const s=await sr.json(),trades=await tr.json(),positions=await pr.json();
     const rejs=await rr.json(),history=await hr.json(),activity=await ar.json();
@@ -1105,7 +1396,9 @@ async function refresh(){
     const mb=document.getElementById('mode-badge');
     mb.textContent=s.mode==='live'?'מצב חי':'מצב הדמיה';
     mb.className='badge '+(s.mode==='live'?'bl':'bp');
-    document.getElementById('pause-badge').style.display=s.is_paused?'':'none';
+    const paused=s.is_paused||false;
+    document.getElementById('pause-badge').style.display=paused?'':'none';
+    document.getElementById('reset-btn').style.display=paused?'':'none';
 
     // ── Health strip
     document.getElementById('h-loop').textContent='#'+(s.loop_count||0).toLocaleString();
@@ -1143,6 +1436,7 @@ async function refresh(){
     // ── Platform sims
     if(kr){try{updateKalshi(await kr.json());}catch{}}
     if(cr){try{updateCrypto(await cr.json());}catch{}}
+    if(dr){try{updateDetective(await dr.json());}catch{}}
 
     // ── Footer
     const fd=document.getElementById('foot-dot'),fm=document.getElementById('foot-msg');

@@ -9,7 +9,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from agent.core import AgentCore
 from logger.trade_logger import TradeLogger
 from logger import rejected_logger
-from platforms import kalshi_sim, crypto_arb_sim
+from platforms import kalshi_sim, crypto_arb_sim, detective
 import config
 
 _agent: AgentCore = None
@@ -33,6 +33,17 @@ async def _platform_loop():
         await asyncio.sleep(60)
 
 
+async def _detective_loop():
+    """Background detective scan every 2 hours."""
+    await asyncio.sleep(10)  # let agent start first
+    while True:
+        try:
+            await detective.maybe_scan()
+        except Exception as exc:
+            print(f"[DETECTIVE] {exc}")
+        await asyncio.sleep(7200)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _agent, _logger
@@ -40,10 +51,12 @@ async def lifespan(app: FastAPI):
     _agent = AgentCore(_logger)
     task = asyncio.create_task(_agent.run_loop())
     plat_task = asyncio.create_task(_platform_loop())
+    det_task  = asyncio.create_task(_detective_loop())
     yield
     task.cancel()
     plat_task.cancel()
-    for t in (task, plat_task):
+    det_task.cancel()
+    for t in (task, plat_task, det_task):
         try:
             await t
         except asyncio.CancelledError:
@@ -105,7 +118,50 @@ async def api_kalshi():
 
 @app.get("/api/platforms/crypto")
 async def api_crypto():
+    import time as _time
+    # Trigger a scan if prices are stale (first load or >30s ago)
+    if _time.time() - crypto_arb_sim._cache_ts > 30:
+        try:
+            data = await crypto_arb_sim.scan()
+            return JSONResponse(data)
+        except Exception:
+            pass
     return JSONResponse(crypto_arb_sim.get_status())
+
+
+@app.post("/reset")
+async def reset_agent():
+    if _agent is None:
+        return JSONResponse({"error": "not ready"}, status_code=503)
+    result = _agent.reset()
+    return JSONResponse(result)
+
+
+@app.get("/api/detective")
+async def api_detective():
+    return JSONResponse(detective.get_status())
+
+
+@app.post("/api/detective/scan")
+async def api_detective_scan():
+    """Trigger a full detective scan immediately (runs in background)."""
+    asyncio.create_task(detective.scan())
+    return JSONResponse({"status": "scanning", "message": "סריקה החלה ברקע"})
+
+
+@app.get("/api/data/{filename}")
+async def api_data_file(filename: str):
+    """Serve generated CSV / MD files from the data/ directory."""
+    from fastapi.responses import FileResponse
+    import re
+    if not re.match(r'^[\w\-]+\.(csv|md)$', filename):
+        return JSONResponse({"error": "invalid filename"}, status_code=400)
+    path = f"data/{filename}"
+    import os
+    if not os.path.exists(path):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    media = "text/csv" if filename.endswith(".csv") else "text/markdown"
+    return FileResponse(path, media_type=media, filename=filename)
 
 
 @app.post("/golive")

@@ -1,35 +1,38 @@
 """
 Crypto arbitrage simulator — paper trading only, no API keys needed.
-Fetches public prices from Binance, Kraken, Coinbase and finds
-inter-exchange price spreads. Simulates trades when spread > 0.1%.
+Fetches live public prices from Binance, Kraken, Coinbase every 30s.
+Simulates a buy/sell trade whenever same pair shows spread > 0.03%.
 """
 import asyncio
 import time
 from collections import deque
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 import httpx
 
 PAIRS = ["BTC/USDT", "ETH/USDT", "SOL/USDT"]
-MIN_SPREAD = 0.001   # 0.1% minimum spread to simulate a trade
-MAX_SPREAD = 0.05    # cap at 5% (stale data guard)
+MIN_SPREAD = 0.0003   # 0.03% — realistic lower bound for exchange spreads
+MAX_SPREAD = 0.05     # 5% cap — stale-data guard
 INITIAL_BALANCE = 100.0
-MAX_POSITION_PCT = 0.15
-CACHE_TTL = 30  # seconds
+MAX_POSITION_PCT = 0.20
+CACHE_TTL = 30        # seconds between price refreshes
 
 _balance: float = INITIAL_BALANCE
 _total_pnl: float = 0.0
+_wins: int = 0
 _sim_trades: deque = deque(maxlen=200)
 _opps_found: int = 0
 _price_cache: Dict[str, dict] = {}
+_price_comparison_cache: List[dict] = []  # last computed comparison rows
 _cache_ts: float = 0.0
 
 
-async def _fetch_binance(pair: str) -> Optional[float]:
-    symbol = pair.replace("/", "")
+# ── Price fetchers (all public, no keys) ─────────────────────────────────────
+
+async def _fetch_binance(symbol: str) -> Optional[float]:
     try:
-        async with httpx.AsyncClient(timeout=10) as c:
+        async with httpx.AsyncClient(timeout=8) as c:
             r = await c.get(f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}")
             if r.status_code == 200:
                 return float(r.json()["price"])
@@ -38,12 +41,9 @@ async def _fetch_binance(pair: str) -> Optional[float]:
     return None
 
 
-async def _fetch_kraken(pair: str) -> Optional[float]:
-    # Kraken uses different symbol format
-    kraken_map = {"BTC/USDT": "XBTUSDT", "ETH/USDT": "ETHUSDT", "SOL/USDT": "SOLUSDT"}
-    symbol = kraken_map.get(pair, pair.replace("/", ""))
+async def _fetch_kraken(symbol: str) -> Optional[float]:
     try:
-        async with httpx.AsyncClient(timeout=10) as c:
+        async with httpx.AsyncClient(timeout=8) as c:
             r = await c.get(f"https://api.kraken.com/0/public/Ticker?pair={symbol}")
             if r.status_code == 200:
                 data = r.json()
@@ -51,17 +51,16 @@ async def _fetch_kraken(pair: str) -> Optional[float]:
                     result = data.get("result", {})
                     if result:
                         ticker = next(iter(result.values()))
-                        return float(ticker["c"][0])  # last close price
+                        return float(ticker["c"][0])
     except Exception:
         pass
     return None
 
 
-async def _fetch_coinbase(pair: str) -> Optional[float]:
-    cb_pair = pair.replace("/USDT", "-USD").replace("/", "-")
+async def _fetch_coinbase(product_id: str) -> Optional[float]:
     try:
-        async with httpx.AsyncClient(timeout=10) as c:
-            r = await c.get(f"https://api.coinbase.com/v2/prices/{cb_pair}/spot")
+        async with httpx.AsyncClient(timeout=8) as c:
+            r = await c.get(f"https://api.coinbase.com/v2/prices/{product_id}/spot")
             if r.status_code == 200:
                 return float(r.json()["data"]["amount"])
     except Exception:
@@ -69,31 +68,45 @@ async def _fetch_coinbase(pair: str) -> Optional[float]:
     return None
 
 
+# Pair → (binance_symbol, kraken_symbol, coinbase_product)
+_SYMBOLS = {
+    "BTC/USDT": ("BTCUSDT",  "XBTUSDT",  "BTC-USD"),
+    "ETH/USDT": ("ETHUSDT",  "ETHUSDT",  "ETH-USD"),
+    "SOL/USDT": ("SOLUSDT",  "SOLUSDT",  "SOL-USD"),
+}
+
+
 async def _fetch_all_prices() -> Dict[str, dict]:
     global _price_cache, _cache_ts
+
     if time.time() - _cache_ts < CACHE_TTL:
         return _price_cache
 
-    results = await asyncio.gather(
-        *[
-            asyncio.gather(
-                _fetch_binance(p),
-                _fetch_kraken(p),
-                _fetch_coinbase(p),
-            )
-            for p in PAIRS
-        ],
-        return_exceptions=True,
-    )
+    fetches = []
+    for pair in PAIRS:
+        bn, kr, cb = _SYMBOLS[pair]
+        fetches.append(asyncio.gather(
+            _fetch_binance(bn),
+            _fetch_kraken(kr),
+            _fetch_coinbase(cb),
+            return_exceptions=True,
+        ))
 
-    prices = {}
+    results = await asyncio.gather(*fetches, return_exceptions=True)
+    prices: Dict[str, dict] = {}
+
     for i, pair in enumerate(PAIRS):
         res = results[i] if not isinstance(results[i], Exception) else [None, None, None]
-        binance, kraken, coinbase = (res[0], res[1], res[2]) if isinstance(res, (list, tuple)) else (None, None, None)
+        bn_p, kr_p, cb_p = (
+            (res[0] if not isinstance(res[0], Exception) else None),
+            (res[1] if not isinstance(res[1], Exception) else None),
+            (res[2] if not isinstance(res[2], Exception) else None),
+        ) if isinstance(res, (list, tuple)) else (None, None, None)
+
         prices[pair] = {
-            "binance": round(binance, 4) if binance else None,
-            "kraken": round(kraken, 4) if kraken else None,
-            "coinbase": round(coinbase, 4) if coinbase else None,
+            "binance":  round(float(bn_p), 2) if bn_p else None,
+            "kraken":   round(float(kr_p), 2) if kr_p else None,
+            "coinbase": round(float(cb_p), 2) if cb_p else None,
         }
 
     _price_cache = prices
@@ -101,107 +114,97 @@ async def _fetch_all_prices() -> Dict[str, dict]:
     return prices
 
 
-def _find_arb(pair: str, prices: dict) -> Optional[dict]:
-    """Find best arb opportunity for a pair across the 3 exchanges."""
-    exchange_prices = {
-        "Binance": prices.get("binance"),
-        "Kraken": prices.get("kraken"),
-        "Coinbase": prices.get("coinbase"),
-    }
-    valid = {k: v for k, v in exchange_prices.items() if v and v > 0}
-    if len(valid) < 2:
+def _find_arb(pair: str, p: dict) -> Optional[dict]:
+    ex = {k: v for k, v in {
+        "Binance": p.get("binance"),
+        "Kraken":  p.get("kraken"),
+        "Coinbase": p.get("coinbase"),
+    }.items() if v and v > 0}
+
+    if len(ex) < 2:
         return None
 
-    buy_ex = min(valid, key=valid.get)
-    sell_ex = max(valid, key=valid.get)
-    buy_price = valid[buy_ex]
-    sell_price = valid[sell_ex]
-    spread_pct = (sell_price - buy_price) / buy_price
+    buy_ex  = min(ex, key=ex.get)
+    sell_ex = max(ex, key=ex.get)
+    buy_p, sell_p = ex[buy_ex], ex[sell_ex]
+    spread = (sell_p - buy_p) / buy_p
 
-    if spread_pct < MIN_SPREAD or spread_pct > MAX_SPREAD:
+    if spread < MIN_SPREAD or spread > MAX_SPREAD:
         return None
 
     size = min(_balance * MAX_POSITION_PCT, 20.0)
+    # 65% efficiency after fees/slippage
+    est_pnl = round(size * spread * 0.65, 4)
     return {
         "pair": pair,
-        "buy_exchange": buy_ex,
+        "buy_exchange":  buy_ex,
         "sell_exchange": sell_ex,
-        "buy_price": round(buy_price, 4),
-        "sell_price": round(sell_price, 4),
-        "spread_pct": round(spread_pct, 6),
-        "size": round(size, 2),
-        "estimated_pnl": round(size * spread_pct * 0.7, 4),  # 70% efficiency
-    }
-
-
-def get_status() -> dict:
-    return {
-        "balance": round(_balance, 4),
-        "total_pnl": round(_total_pnl, 4),
-        "opportunities_found": _opps_found,
-        "trades": len(_sim_trades),
-        "price_comparison": [
-            {
-                "pair": p,
-                "binance": _price_cache.get(p, {}).get("binance"),
-                "kraken": _price_cache.get(p, {}).get("kraken"),
-                "coinbase": _price_cache.get(p, {}).get("coinbase"),
-                "max_spread": 0,
-            }
-            for p in PAIRS
-        ],
-        "arb_opportunities": [],
-        "sim_trades": list(_sim_trades)[:30],
+        "buy_price":  round(buy_p,  2),
+        "sell_price": round(sell_p, 2),
+        "spread_pct": round(spread, 6),
+        "size":       round(size,   2),
+        "estimated_pnl": est_pnl,
     }
 
 
 async def scan() -> dict:
-    global _balance, _total_pnl, _opps_found
+    global _balance, _total_pnl, _wins, _opps_found, _price_comparison_cache
 
     prices = await _fetch_all_prices()
-
-    arb_opps = []
-    price_comparison = []
+    arb_opps: List[dict] = []
+    comparison: List[dict] = []
 
     for pair in PAIRS:
         p = prices.get(pair, {})
         vals = [v for v in [p.get("binance"), p.get("kraken"), p.get("coinbase")] if v]
-        max_spread = (max(vals) - min(vals)) / min(vals) if len(vals) >= 2 else 0
-        price_comparison.append({
+        max_spread = round((max(vals) - min(vals)) / min(vals), 6) if len(vals) >= 2 else 0
+        comparison.append({
             "pair": pair,
-            "binance": p.get("binance"),
-            "kraken": p.get("kraken"),
-            "coinbase": p.get("coinbase"),
-            "max_spread": round(max_spread, 6),
+            "binance":    p.get("binance"),
+            "kraken":     p.get("kraken"),
+            "coinbase":   p.get("coinbase"),
+            "max_spread": max_spread,
         })
 
         arb = _find_arb(pair, p)
         if arb:
             _opps_found += 1
             arb_opps.append(arb)
-
-            # Simulate trade
             pnl = arb["estimated_pnl"]
-            _balance = round(_balance + pnl, 4)
-            _total_pnl = round(_total_pnl + pnl, 4)
+            _balance    = round(_balance    + pnl, 4)
+            _total_pnl  = round(_total_pnl  + pnl, 4)
+            if pnl > 0:
+                _wins += 1
             _sim_trades.appendleft({
-                "ts": datetime.now(timezone.utc).isoformat(),
-                "pair": pair,
-                "buy_exchange": arb["buy_exchange"],
+                "ts":            datetime.now(timezone.utc).isoformat(),
+                "pair":          pair,
+                "buy_exchange":  arb["buy_exchange"],
                 "sell_exchange": arb["sell_exchange"],
-                "buy_price": arb["buy_price"],
-                "sell_price": arb["sell_price"],
-                "spread_pct": arb["spread_pct"],
-                "size": arb["size"],
-                "pnl": pnl,
+                "buy_price":     arb["buy_price"],
+                "sell_price":    arb["sell_price"],
+                "spread_pct":    arb["spread_pct"],
+                "size":          arb["size"],
+                "pnl":           pnl,
             })
 
+    _price_comparison_cache = comparison
+    return _build_status(comparison, arb_opps)
+
+
+def _build_status(comparison: List[dict], arb_opps: List[dict]) -> dict:
+    total = len(_sim_trades)
     return {
-        "balance": round(_balance, 4),
-        "total_pnl": round(_total_pnl, 4),
+        "balance":            round(_balance,    4),
+        "total_pnl":          round(_total_pnl,  4),
+        "trades":             total,
+        "wins":               _wins,
+        "win_rate":           round(_wins / total, 4) if total else 0.0,
         "opportunities_found": _opps_found,
-        "trades": len(_sim_trades),
-        "price_comparison": price_comparison,
-        "arb_opportunities": arb_opps,
-        "sim_trades": list(_sim_trades)[:30],
+        "price_comparison":   comparison,
+        "arb_opportunities":  arb_opps,
+        "sim_trades":         list(_sim_trades)[:30],
     }
+
+
+def get_status() -> dict:
+    return _build_status(_price_comparison_cache, [])

@@ -323,6 +323,25 @@ class AgentCore:
             "strategy_stats": {k: dict(v) for k, v in self._strategy_stats.items()},
         }
 
+    def reset(self) -> dict:
+        """Full portfolio reset: restore initial balance, clear positions, unpause."""
+        self.balance = config.INITIAL_BALANCE
+        self.daily_start_balance = config.INITIAL_BALANCE
+        self.daily_pnl = 0.0
+        self.total_pnl = 0.0
+        self.trades_today = 0
+        self.errors_today = 0
+        self.is_paused = False
+        self.positions.clear()
+        self._pnl_history.clear()
+        self._activity.appendleft({
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "type": "loop",
+            "msg": f"↺ איפוס מלא — יתרה חודשה ל-${config.INITIAL_BALANCE:.2f}, הסוכן פעיל מחדש",
+        })
+        print(f"[RESET] Full reset — balance=${config.INITIAL_BALANCE:.2f}, unpaused")
+        return {"status": "reset", "balance": config.INITIAL_BALANCE, "paused": False}
+
     def get_pnl_history(self) -> list:
         return list(self._pnl_history)
 
