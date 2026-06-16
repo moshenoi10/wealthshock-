@@ -29,26 +29,39 @@ from typing import Dict, List, Optional
 
 import httpx
 
-INITIAL_BALANCE = 500.0
-MAX_TRADE_USD   = 50.0         # per market side (total book = 2×)
-TOP_N_MARKETS   = 5
-HALF_SPREAD     = 0.015        # 1.5% each side → 3% total spread earned
-MAX_LEG_AGE_S   = 300          # 5 min before we close a single-leg
-REWARD_PER_SCAN = 0.001        # simulated LP reward per book per scan
-CACHE_TTL       = 20
+INITIAL_BALANCE    = 500.0
+MAX_TRADE_USD      = 50.0         # per market side (total book = 2×)
+TOP_N_MARKETS      = 5
+HALF_SPREAD        = 0.015        # 1.5% baseline each side → 3% total spread
+HALF_SPREAD_MIN    = 0.008        # 0.8% floor — tightest we'll quote
+HALF_SPREAD_MAX    = 0.035        # 3.5% ceiling — widest we'll quote
+MAX_LEG_AGE_S      = 300          # 5 min before we close a single-leg
+REWARD_PER_SCAN    = 0.001        # simulated LP reward per book per scan
+CACHE_TTL          = 20
+# Adverse fill detection (LP Tool pattern):
+# If >50% of single-leg closes are losses (adverse selection), widen spread.
+# If <20% are adverse, tighten to capture more volume.
+ADVERSE_RATE_WIDEN  = 0.50
+ADVERSE_RATE_TIGHTEN = 0.20
+SPREAD_ADJUST_STEP  = 0.0025    # ±0.25% per adjustment
+MIN_CLOSED_FOR_ADJUST = 5       # need at least 5 closed books before adjusting
 
-_balance:      float = INITIAL_BALANCE
-_total_pnl:    float = 0.0
-_wins:         int   = 0
-_total_trades: int   = 0
-_books:        Dict[str, dict] = {}   # keyed by condition_id
-_sim_trades:   deque = deque(maxlen=200)
-_scan_log:     deque = deque(maxlen=50)
-_scan_count:   int   = 0
-_last_scan_ts: Optional[str] = None
-_cache_ts:     float = 0.0
-_mkt_cache:    List[dict] = []
-_lp_rewards:   float = 0.0
+_balance:           float = INITIAL_BALANCE
+_total_pnl:         float = 0.0
+_wins:              int   = 0
+_total_trades:      int   = 0
+_books:             Dict[str, dict] = {}   # keyed by condition_id
+_sim_trades:        deque = deque(maxlen=200)
+_scan_log:          deque = deque(maxlen=50)
+_scan_count:        int   = 0
+_last_scan_ts:      Optional[str] = None
+_cache_ts:          float = 0.0
+_mkt_cache:         List[dict] = []
+_lp_rewards:        float = 0.0
+# Dynamic spread state (LP Tool pattern)
+_dynamic_half_spread: float = HALF_SPREAD
+_adverse_fills:     int   = 0   # single-leg closes that resulted in a loss
+_good_fills:        int   = 0   # successful round trips
 
 
 # ─── Market fetch ──────────────────────────────────────────────────────────────
@@ -123,12 +136,13 @@ def _open_book(mkt: dict, ts: str):
     if size < 5:
         return
 
+    hs = _dynamic_half_spread
     _balance = round(_balance - size * 2, 4)   # reserve both sides
     _books[mkt["condition_id"]] = {
         "question":     mkt["question"][:70],
         "mid_quoted":   round(mid, 4),
-        "bid":          round(mid - HALF_SPREAD, 4),
-        "ask":          round(mid + HALF_SPREAD, 4),
+        "bid":          round(mid - hs, 4),
+        "ask":          round(mid + hs, 4),
         "size":         round(size, 4),
         "bid_filled":   False,
         "ask_filled":   False,
@@ -139,13 +153,33 @@ def _open_book(mkt: dict, ts: str):
     }
     print(
         f"[MAKER-SPREAD] BOOK '{mkt['question'][:40]}' "
-        f"bid={mid - HALF_SPREAD:.3f} ask={mid + HALF_SPREAD:.3f} size=${size:.2f}"
+        f"bid={mid - hs:.3f} ask={mid + hs:.3f} size=${size:.2f} "
+        f"spread={hs*200:.1f}%"
     )
+
+
+def _adjust_dynamic_spread():
+    """LP Tool pattern: widen spread under adverse selection, tighten when fills are clean."""
+    global _dynamic_half_spread
+    total_closed = _good_fills + _adverse_fills
+    if total_closed < MIN_CLOSED_FOR_ADJUST:
+        return
+    adverse_rate = _adverse_fills / total_closed
+    if adverse_rate > ADVERSE_RATE_WIDEN:
+        new_hs = min(HALF_SPREAD_MAX, _dynamic_half_spread + SPREAD_ADJUST_STEP)
+        if new_hs != _dynamic_half_spread:
+            _dynamic_half_spread = new_hs
+            print(f"[MAKER-SPREAD] Adverse rate {adverse_rate:.0%} → WIDENING spread to {new_hs*200:.1f}%")
+    elif adverse_rate < ADVERSE_RATE_TIGHTEN:
+        new_hs = max(HALF_SPREAD_MIN, _dynamic_half_spread - SPREAD_ADJUST_STEP)
+        if new_hs != _dynamic_half_spread:
+            _dynamic_half_spread = new_hs
+            print(f"[MAKER-SPREAD] Adverse rate {adverse_rate:.0%} → TIGHTENING spread to {new_hs*200:.1f}%")
 
 
 def _update_book(cid: str, current_yes: float, ts: str):
     """Check fills and settle if complete or too old."""
-    global _balance, _total_pnl, _wins, _total_trades, _lp_rewards
+    global _balance, _total_pnl, _wins, _total_trades, _lp_rewards, _adverse_fills, _good_fills
 
     book = _books.get(cid)
     if not book:
@@ -177,12 +211,14 @@ def _update_book(cid: str, current_yes: float, ts: str):
     reason = ""
 
     if book["bid_filled"] and book["ask_filled"]:
-        # Full round trip: we earned the spread on both sides
-        spread_earned = round(HALF_SPREAD * 2 * book["size"], 4)
+        # Full round trip: earn the spread on both sides
+        hs = (book["ask"] - book["bid"]) / 2  # actual half-spread this book was opened with
+        spread_earned = round(hs * 2 * book["size"], 4)
         _balance    = round(_balance + book["size"] * 2 + spread_earned, 4)
         _total_pnl  = round(_total_pnl + spread_earned, 4)
         _total_trades += 1
         _wins += 1
+        _good_fills += 1   # clean fill — both sides crossed
         close = True
         won   = True
         reason = "round_trip"
@@ -213,6 +249,11 @@ def _update_book(cid: str, current_yes: float, ts: str):
         _total_trades += 1
         if pnl > 0:
             _wins += 1
+        # Adverse fill detection: single-leg that lost money = got adversely selected
+        single_leg_filled = book["bid_filled"] or book["ask_filled"]
+        if single_leg_filled and pnl < 0:
+            _adverse_fills += 1
+        _adjust_dynamic_spread()
         close  = True
         reason = f"timeout_{'bid' if book['bid_filled'] else 'ask' if book['ask_filled'] else 'none'}"
         _sim_trades.appendleft({
@@ -306,7 +347,11 @@ def get_status() -> dict:
         "scan_log":       list(_scan_log)[:10],
         "scan_count":     _scan_count,
         "last_scan":      _last_scan_ts,
-        "initial_balance": INITIAL_BALANCE,
-        "half_spread":    HALF_SPREAD,
-        "top_n":          TOP_N_MARKETS,
+        "initial_balance":    INITIAL_BALANCE,
+        "half_spread":        HALF_SPREAD,
+        "dynamic_half_spread": round(_dynamic_half_spread, 4),
+        "adverse_fills":      _adverse_fills,
+        "good_fills":         _good_fills,
+        "adverse_rate":       round(_adverse_fills / max(_adverse_fills + _good_fills, 1), 3),
+        "top_n":              TOP_N_MARKETS,
     }

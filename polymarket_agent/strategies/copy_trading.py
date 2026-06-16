@@ -21,10 +21,12 @@ from strategies.base import Opportunity
 
 NAME = "copy_trading"
 TOP_N = 10
-MIN_WIN_RATE = config.COPY_TRADING_MIN_WIN_RATE   # 0.44
-MIN_TRADES = config.COPY_TRADING_MIN_TRADES        # 16
+MIN_WIN_RATE          = config.COPY_TRADING_MIN_WIN_RATE   # 0.44
+MIN_TRADES            = config.COPY_TRADING_MIN_TRADES      # 16
 MAX_CONSECUTIVE_LOSSES = 3
-RECENCY_DAYS = 30
+RECENCY_DAYS          = 30
+MIN_PROFIT_FACTOR     = 1.3    # total win-side value / total loss-side value
+MIN_VOLUME_USD        = 50.0   # ignore wallets with < $50 estimated volume
 
 _wallet_scores: Dict[str, dict] = {}
 _loss_streak: Dict[str, int] = {}
@@ -85,11 +87,38 @@ async def _score_wallet(wallet: str) -> Optional[dict]:
         if len(recent) < 5:
             return None
 
-        wins = sum(1 for t in recent if float(t.get("price") or 0) > 0.5)
-        win_rate = wins / len(recent)
+        # --- Profit factor (Smart Money pattern): weight wins vs losses by price distance ---
+        # A trade is a "strong win" if entry price was low (<0.5) and market resolved YES,
+        # or entry was high (>0.5) — proxy: use price deviation from 0.5 as conviction weight.
+        win_value   = 0.0
+        loss_value  = 0.0
+        win_count   = 0
+        total_vol   = 0.0
+        for t in recent:
+            price = float(t.get("price") or 0)
+            size  = float(t.get("size") or t.get("amount") or 1.0)
+            if price <= 0 or price >= 1:
+                continue
+            total_vol += price * size
+            if price > 0.5:
+                # Buying YES when market thinks it's likely → lower conviction win
+                win_count  += 1
+                win_value  += (1.0 - price) * size  # potential upside is small
+            else:
+                # Buying YES when market is skeptical → contrarian, higher conviction
+                win_count  += 1
+                win_value  += (1.0 - price) * size
+
+        # Rough loss proxy: trades that resolved against the buyer (use price > 0.8 as overconfident)
+        for t in recent:
+            price = float(t.get("price") or 0)
+            size  = float(t.get("size") or t.get("amount") or 1.0)
+            if price > 0.8:  # bought near-certainty, likely overfit
+                loss_value += price * size
+
+        win_rate = win_count / len(recent)
 
         if win_rate < MIN_WIN_RATE:
-            # Near-miss: wallet has trades but below win rate threshold
             rejected_logger.log(
                 source=NAME,
                 reason="win_rate_below_threshold",
@@ -101,11 +130,32 @@ async def _score_wallet(wallet: str) -> Optional[dict]:
             )
             return None
 
+        # Profit factor: total value captured on wins / value burned on losses
+        profit_factor = win_value / max(loss_value, 0.01)
+        if profit_factor < MIN_PROFIT_FACTOR:
+            rejected_logger.log(
+                source=NAME,
+                reason="profit_factor_below_threshold",
+                market_question=f"wallet {wallet[:12]}",
+                token_id=wallet,
+                value=profit_factor,
+                threshold=MIN_PROFIT_FACTOR,
+                extra={"wallet": wallet, "profit_factor": round(profit_factor, 3)},
+            )
+            return None
+
+        # Volume floor: ignore micro-traders
+        if total_vol < MIN_VOLUME_USD:
+            return None
+
         return {
-            "wallet": wallet,
-            "win_rate": win_rate,
-            "trade_count": len(recent),
-            "score": win_rate * (len(recent) ** 0.3),
+            "wallet":        wallet,
+            "win_rate":      win_rate,
+            "profit_factor": round(profit_factor, 3),
+            "trade_count":   len(recent),
+            "total_vol":     round(total_vol, 2),
+            # Score: win rate × profit factor × log(trade_count) — balances quality vs quantity
+            "score": win_rate * profit_factor * (len(recent) ** 0.3),
         }
     except Exception:
         return None
@@ -218,7 +268,8 @@ async def run(markets: List[dict], positions: dict, balance: float) -> List[Oppo
                 ev=score["win_rate"],
                 reasoning=(
                     f"Copy {wallet[:8]}… "
-                    f"win_rate={score['win_rate']:.1%} "
+                    f"wr={score['win_rate']:.1%} "
+                    f"pf={score.get('profit_factor', '?')} "
                     f"score={score['score']:.2f}"
                 ),
                 market_question=market.get("question", "")[:120],

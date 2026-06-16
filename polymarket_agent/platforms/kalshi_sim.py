@@ -19,8 +19,17 @@ KALSHI_URLS = [
     "https://trading-api.kalshi.com/trade-api/v2",
 ]
 INITIAL_BALANCE  = 100.0
-_MIN_EDGE_START  = 0.025   # 2.5% — starting threshold
-_MIN_EDGE_FLOOR  = 0.005   # 0.5% — lowest we'll go
+# Fee-adjusted thresholds (Smart Money / LP Tool insight: raw spread ≠ profit)
+# Polymarket: 2% take rate on winning contracts
+# Kalshi: ~5.5% fee on net profits from winning side
+# Break-even raw spread = POLY_FEE + KALSHI_FEE = 7.5%
+# We require an additional cushion on top for true profit.
+POLY_FEE         = 0.020   # 2% on winning-side payout
+KALSHI_FEE       = 0.055   # 5.5% on winning-side payout
+FEE_TOTAL        = POLY_FEE + KALSHI_FEE   # 7.5% minimum to break even
+MIN_NET_EDGE     = 0.010   # require 1% net profit after fees (= 8.5% raw spread)
+_MIN_EDGE_START  = FEE_TOTAL + MIN_NET_EDGE  # 8.5% raw threshold — honest starting point
+_MIN_EDGE_FLOOR  = FEE_TOTAL + 0.002         # 7.7% floor — barely profitable after fees
 _MIN_EDGE_STEP   = 0.005   # drop 0.5% each time
 _ZERO_RUNS_LIMIT = 3       # consecutive zero-spread scans before lowering
 MAX_POSITION_PCT = 0.10
@@ -178,11 +187,16 @@ async def scan(poly_markets: List[dict]) -> dict:
         if not (0 < p_price < 1):
             continue
 
-        edge = abs(p_price - k_price)
-        all_spreads.append((edge, title[:50]))
+        raw_edge = abs(p_price - k_price)
+        all_spreads.append((raw_edge, title[:50]))
 
-        if edge < _current_min_edge:
+        if raw_edge < _current_min_edge:
             continue
+
+        # Fee-corrected net edge (LP Tool pattern: never count raw spread as profit)
+        net_edge = raw_edge - FEE_TOTAL
+        if net_edge <= 0:
+            continue  # fee-adjusted loss even though raw spread looked attractive
 
         detail["spread_above_min"] += 1
         buy_plat  = "Kalshi" if k_price < p_price else "Polymarket"
@@ -195,16 +209,18 @@ async def scan(poly_markets: List[dict]) -> dict:
             "poly_question": pm.get("question", "")[:60],
             "poly_price":    round(p_price,  4),
             "kalshi_price":  round(k_price,  4),
-            "edge":          round(edge,     4),
+            "raw_edge":      round(raw_edge, 4),
+            "net_edge":      round(net_edge, 4),   # after fees — true profit estimate
+            "fees_cost":     round(FEE_TOTAL, 4),
             "buy_platform":  buy_plat,
             "sell_platform": sell_plat,
-            "buy_price":     round(buy_p,    4),
-            "sell_price":    round(sell_p,   4),
+            "buy_price":     round(buy_p,  4),
+            "sell_price":    round(sell_p, 4),
         })
 
         size    = min(_balance * MAX_POSITION_PCT, 5.0)
         if size >= 0.5:
-            sim_pnl      = round(size * edge * 0.75, 4)
+            sim_pnl      = round(size * net_edge, 4)  # simulate realistic net profit after fees
             _balance     = round(_balance   + sim_pnl, 4)
             _total_pnl   = round(_total_pnl + sim_pnl, 4)
             if sim_pnl > 0:
@@ -216,7 +232,8 @@ async def scan(poly_markets: List[dict]) -> dict:
                 "side":     f"קנה {buy_plat} / מכור {sell_plat}",
                 "price":    round(buy_p,  4),
                 "size":     round(size,   2),
-                "edge_pct": round(edge * 100, 2),
+                "raw_edge_pct": round(raw_edge * 100, 2),
+                "net_edge_pct": round(net_edge * 100, 2),
                 "pnl":      sim_pnl,
             })
 
@@ -246,15 +263,17 @@ async def scan(poly_markets: List[dict]) -> dict:
             else:
                 # Hit the floor — issue verdict on whether prices are identical
                 max_spread_seen = all_spreads[0][0] if all_spreads else 0.0
-                if max_spread_seen < 0.003:
+                if max_spread_seen < FEE_TOTAL:
                     _threshold_verdict = (
-                        f"VERDICT: Kalshi & Polymarket prices are IDENTICAL (<0.3% max spread). "
-                        f"No arb possible. Best spread seen: {max_spread_seen*100:.3f}%"
+                        f"VERDICT: Best raw spread {max_spread_seen*100:.2f}% < fees {FEE_TOTAL*100:.1f}% "
+                        f"(Poly {POLY_FEE*100:.0f}% + Kalshi {KALSHI_FEE*100:.1f}%). "
+                        f"All opportunities are fee-negative. No real arb exists."
                     )
                 else:
                     _threshold_verdict = (
-                        f"VERDICT: Spreads exist but only {max_spread_seen*100:.3f}% max. "
-                        f"Below execution cost. No profitable arb."
+                        f"VERDICT: Spreads up to {max_spread_seen*100:.2f}% raw / "
+                        f"{(max_spread_seen - FEE_TOTAL)*100:.2f}% net after fees. "
+                        f"Below minimum net edge of {MIN_NET_EDGE*100:.1f}%. Unprofitable."
                     )
                 detail["verdict"] = _threshold_verdict
         else:
