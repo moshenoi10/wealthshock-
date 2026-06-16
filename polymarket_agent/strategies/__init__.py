@@ -4,17 +4,24 @@ from typing import List
 from strategies.base import Opportunity
 from strategies import (
     near_resolution,
-    # pure_arbitrage,        # DISABLED
-    # directional_arb,       # DISABLED
-    # repricing,             # DISABLED
-    # cross_timeframe,       # DISABLED
-    # copy_trading,          # DISABLED — no whale signals
-    # exploit_new_market,    # DISABLED — logic flaw
-    # exploit_liquidity_trap, # DISABLED — logic flaw
+    pure_arbitrage,
+    directional_arb,
+    repricing,
+    cross_timeframe,
+    copy_trading,
+    momentum,      # paper-only: price direction following
+    overreaction,  # paper-only: fade large short-term price moves
 )
 
 _STRATEGIES = [
     near_resolution,
+    pure_arbitrage,
+    directional_arb,
+    repricing,
+    cross_timeframe,
+    copy_trading,
+    momentum,
+    overreaction,
 ]
 
 

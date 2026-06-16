@@ -14,34 +14,41 @@ INITIAL_BALANCE = float(os.getenv("INITIAL_BALANCE", "18.0"))
 MIN_BALANCE = 10.0
 MAX_TOTAL_BUDGET = 18.0
 
-# ── Risk management (DO NOT change — user instruction) ──────────────────────
-MAX_POSITION_PCT = 0.10
-STOP_LOSS_PCT = 0.15
-DAILY_DRAWDOWN_LIMIT = 0.08
-MIN_LIQUIDITY = 500.0
+# ── Risk management — LIVE MODE (never loosened — DO NOT change these) ──────
+# These values protect real funds. Paper mode uses PAPER_* overrides below.
+MAX_POSITION_PCT     = 0.10   # 10% per trade in live mode
+STOP_LOSS_PCT        = 0.15   # 15% stop loss in live mode
+DAILY_DRAWDOWN_LIMIT = 0.08   # 8% daily drawdown in live mode
+MIN_LIQUIDITY        = 500.0
 
-# ── Entry thresholds (reverted to conservative on 2026-06-14) ───────────────
-# Lesson learned: loosened thresholds ($18→$10.61, 0% win rate) — quality > quantity
-#
-# Strategy 1 — Near Resolution
-NEAR_RESOLUTION_WINDOW_MIN = 10     # markets closing within 10 minutes (was 2 — too tight)
-NEAR_RESOLUTION_MAX_PRICE  = 0.95   # winning side must be below 0.95 (was 0.90 — too strict)
-NEAR_RESOLUTION_MIN_EDGE   = 0.005  # 0.5% minimum EV (edge = 1 - price)
-NEAR_RESOLUTION_MIN_LIQUIDITY = 10.0  # separate (lower) floor for NR fetch
-
-# Strategy 2 & 3 — Pure / Directional Arbitrage
-ARBITRAGE_MAX_SUM = 0.98
-ARBITRAGE_MIN_EDGE = 0.001              # secondary noise guard (keep)
-
-# Strategy 4 — Repricing / Fair Value
-REPRICING_MIN_DEVIATION = 0.02
-
-# Strategy 5 — Cross Timeframe
+# ── Live mode entry thresholds (conservative — DO NOT change) ────────────────
+NEAR_RESOLUTION_WINDOW_MIN    = 10
+NEAR_RESOLUTION_MAX_PRICE     = 0.95
+NEAR_RESOLUTION_MIN_EDGE      = 0.005
+NEAR_RESOLUTION_MIN_LIQUIDITY = 10.0
+ARBITRAGE_MAX_SUM             = 0.98
+ARBITRAGE_MIN_EDGE            = 0.001
+REPRICING_MIN_DEVIATION       = 0.02
 CROSS_TIMEFRAME_MIN_DIVERGENCE = 0.03
+COPY_TRADING_MIN_WIN_RATE     = 0.55
+COPY_TRADING_MIN_TRADES       = 20
 
-# Strategy 6 — Copy Trading
-COPY_TRADING_MIN_WIN_RATE = 0.55
-COPY_TRADING_MIN_TRADES = 20
+# ── PAPER MODE — Aggressive thresholds (only used when TRADING_MODE=paper) ──
+# Safe to change freely: no real funds involved.
+PAPER_MAX_POSITION_PCT            = 0.25   # 25% per paper trade
+PAPER_DAILY_DRAWDOWN_LIMIT        = 0.50   # halt only at 50% paper loss
+PAPER_MIN_BALANCE                 = 0.50   # trade until nearly nothing
+PAPER_LOOP_INTERVAL               = 10     # scan every 10s (was 30)
+PAPER_NEAR_RESOLUTION_WINDOW_MIN  = 30     # 30-min window (was 10)
+PAPER_NEAR_RESOLUTION_MAX_PRICE   = 0.85   # buy anything below 85%
+PAPER_NEAR_RESOLUTION_MIN_EDGE    = 0.003  # 0.3% EV minimum
+PAPER_ARBITRAGE_MAX_SUM           = 0.99   # tighter spreads accepted
+PAPER_REPRICING_MIN_DEVIATION     = 0.01   # 1% (was 2%)
+PAPER_CROSS_TIMEFRAME_MIN_DIV     = 0.015  # 1.5% (was 3%)
+PAPER_MOMENTUM_MIN_MOVE           = 0.015  # 1.5% price move triggers momentum
+PAPER_MOMENTUM_LOOKBACK_SCANS     = 3      # must move same direction for N scans
+PAPER_OVERREACTION_JUMP_PCT       = 0.08   # 8% jump in 60s triggers fade
+PAPER_OVERREACTION_HOLD_SCANS     = 6      # hold the fade for up to N scans
 
 # ── Strategy 7 — Exploit: New Market Mispricing ──────────────────────────────
 EXPLOIT_NM_MAX_AGE_HOURS  = 1.0    # only markets younger than this

@@ -67,7 +67,8 @@ class AgentCore:
                     "type": "error",
                     "msg": f"שגיאה: {str(exc)[:80]}",
                 })
-            await asyncio.sleep(config.LOOP_INTERVAL)
+            interval = config.PAPER_LOOP_INTERVAL if self.mode == "paper" else config.LOOP_INTERVAL
+            await asyncio.sleep(interval)
 
     def _record_pnl_snapshot(self):
         positions_value = sum(
@@ -89,9 +90,10 @@ class AgentCore:
             print(f"[AGENT] ⏸  Paused. Balance=${self.balance:.2f} daily_pnl=${self.daily_pnl:.4f}")
             return
 
-        if self.balance < config.MIN_BALANCE:
+        min_bal = config.PAPER_MIN_BALANCE if self.mode == "paper" else config.MIN_BALANCE
+        if self.balance < min_bal:
             self.is_paused = True
-            print(f"[AGENT] Balance ${self.balance:.2f} < floor ${config.MIN_BALANCE}. Pausing.")
+            print(f"[AGENT] Balance ${self.balance:.2f} < floor ${min_bal}. Pausing.")
             return
 
         # Fetch markets (main + near-resolution specific)

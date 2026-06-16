@@ -68,7 +68,12 @@ class RiskManager:
             )
             total_value = self.agent.balance + positions_value
             drawdown = (self.agent.daily_start_balance - total_value) / self.agent.daily_start_balance
-            if drawdown >= config.DAILY_DRAWDOWN_LIMIT:
+            dd_limit = (
+                config.PAPER_DAILY_DRAWDOWN_LIMIT
+                if self.agent.mode == "paper"
+                else config.DAILY_DRAWDOWN_LIMIT
+            )
+            if drawdown >= dd_limit:
                 return f"daily_drawdown_limit:{drawdown:.2%}"
 
         return None

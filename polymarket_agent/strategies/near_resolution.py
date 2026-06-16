@@ -47,6 +47,13 @@ def _parse_end_dt(end_str: str):
 async def run(markets: List[dict], positions: dict, balance: float) -> List[Opportunity]:
     global _last_scan_markets, _last_scan_found, _last_scan_ts
 
+    # Use aggressive thresholds in paper mode, conservative in live mode
+    is_paper   = config.TRADING_MODE == "paper"
+    window_min = config.PAPER_NEAR_RESOLUTION_WINDOW_MIN if is_paper else config.NEAR_RESOLUTION_WINDOW_MIN
+    max_price  = config.PAPER_NEAR_RESOLUTION_MAX_PRICE  if is_paper else config.NEAR_RESOLUTION_MAX_PRICE
+    min_edge   = config.PAPER_NEAR_RESOLUTION_MIN_EDGE   if is_paper else config.NEAR_RESOLUTION_MIN_EDGE
+    pos_pct    = config.PAPER_MAX_POSITION_PCT           if is_paper else config.MAX_POSITION_PCT
+
     opps: List[Opportunity] = []
     now = datetime.now(timezone.utc)
     scan_ts = now.isoformat()
@@ -84,7 +91,7 @@ async def run(markets: List[dict], positions: dict, balance: float) -> List[Oppo
                 "min_left": round(minutes_left, 1), "price": None,
             })
             continue
-        if minutes_left >= config.NEAR_RESOLUTION_WINDOW_MIN:
+        if minutes_left >= window_min:
             batch_entries.append({
                 "q": question, "reason": f"too_far:{round(minutes_left,1)}min",
                 "min_left": round(minutes_left, 1), "price": None,
@@ -120,7 +127,7 @@ async def run(markets: List[dict], positions: dict, balance: float) -> List[Oppo
                     "min_left": round(minutes_left, 1), "price": price,
                 })
                 continue
-            if price >= config.NEAR_RESOLUTION_MAX_PRICE:
+            if price >= max_price:
                 batch_entries.append({
                     "q": question, "reason": f"price_already_resolved:{price:.3f}({outcome})",
                     "min_left": round(minutes_left, 1), "price": price,
@@ -129,7 +136,7 @@ async def run(markets: List[dict], positions: dict, balance: float) -> List[Oppo
 
             ev = 1.0 - price
 
-            if ev >= config.NEAR_RESOLUTION_MIN_EDGE:
+            if ev >= min_edge:
                 opps.append(Opportunity(
                     strategy=NAME,
                     market_id=market.get("id", ""),
@@ -137,7 +144,7 @@ async def run(markets: List[dict], positions: dict, balance: float) -> List[Oppo
                     token_id=tid,
                     side="BUY",
                     price=price,
-                    size=min(balance * config.MAX_POSITION_PCT, 5.0),
+                    size=min(balance * pos_pct, 5.0),
                     ev=ev,
                     reasoning=(
                         f"Near resolution ({minutes_left:.1f}min): "
@@ -155,7 +162,7 @@ async def run(markets: List[dict], positions: dict, balance: float) -> List[Oppo
                 # Near-miss
                 batch_entries.append({
                     "q": question,
-                    "reason": f"ev_too_low:{ev:.4f}<{config.NEAR_RESOLUTION_MIN_EDGE}({outcome}@{price:.3f})",
+                    "reason": f"ev_too_low:{ev:.4f}<{min_edge}({outcome}@{price:.3f})",
                     "min_left": round(minutes_left, 1), "price": price,
                     "ev": round(ev, 4),
                 })
@@ -165,7 +172,7 @@ async def run(markets: List[dict], positions: dict, balance: float) -> List[Oppo
                     market_question=market.get("question", ""),
                     token_id=tid,
                     value=ev,
-                    threshold=config.NEAR_RESOLUTION_MIN_EDGE,
+                    threshold=min_edge,
                     extra={"price": price, "minutes_left": round(minutes_left, 2)},
                 )
 
@@ -179,8 +186,8 @@ async def run(markets: List[dict], positions: dict, balance: float) -> List[Oppo
         "markets":   len(markets),
         "evaluated": len(batch_entries),
         "triggered": len(opps),
-        "window_min":  config.NEAR_RESOLUTION_WINDOW_MIN,
-        "max_price":   config.NEAR_RESOLUTION_MAX_PRICE,
+        "window_min":  window_min,
+        "max_price":   max_price,
     })
 
     # Always print something so Railway logs are useful
@@ -189,7 +196,7 @@ async def run(markets: List[dict], positions: dict, balance: float) -> List[Oppo
         f"[NR] {len(markets)} markets | "
         f"{len(in_window)} in window | "
         f"{len(opps)} triggered | "
-        f"window={config.NEAR_RESOLUTION_WINDOW_MIN}min"
+        f"window={window_min}min max_price={max_price}"
     )
 
     return opps
@@ -200,9 +207,9 @@ def get_debug() -> dict:
         "last_scan_ts":      _last_scan_ts,
         "last_scan_markets": _last_scan_markets,
         "last_scan_found":   _last_scan_found,
-        "window_min":        config.NEAR_RESOLUTION_WINDOW_MIN,
-        "max_price":         config.NEAR_RESOLUTION_MAX_PRICE,
-        "min_edge":          config.NEAR_RESOLUTION_MIN_EDGE,
+        "window_min":        config.PAPER_NEAR_RESOLUTION_WINDOW_MIN if config.TRADING_MODE == "paper" else config.NEAR_RESOLUTION_WINDOW_MIN,
+        "max_price":         config.PAPER_NEAR_RESOLUTION_MAX_PRICE  if config.TRADING_MODE == "paper" else config.NEAR_RESOLUTION_MAX_PRICE,
+        "min_edge":          config.PAPER_NEAR_RESOLUTION_MIN_EDGE   if config.TRADING_MODE == "paper" else config.NEAR_RESOLUTION_MIN_EDGE,
         "recent_evals":      list(_scan_log)[:50],
         "summary_log":       list(_summary_log)[:20],
     }
